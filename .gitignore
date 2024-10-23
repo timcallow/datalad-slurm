@@ -4,6 +4,7 @@
 *.egg-info
 *.py[coe]
 .#*
+*~
 .*.swp
 pip-wheel-metadata
 docs/build
