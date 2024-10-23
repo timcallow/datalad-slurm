@@ -3,7 +3,7 @@
 __docformat__ = 'restructuredtext'
 
 import logging
-lgr = logging.getLogger('datalad.helloworld')
+lgr = logging.getLogger('datalad.slurm')
 
 # Defines a datalad command suite.
 # This variable must be bound as a setuptools entrypoint
@@ -15,9 +15,9 @@ command_suite = (
         # specification of a command, any number of commands can be defined
         (
             # importable module that contains the command implementation
-            'datalad_helloworld.hello_cmd',
+            'datalad_slurm.hello_cmd',
             # name of the command class implementation in above module
-            'HelloWorld',
+            'Slurm',
             # optional name of the command in the cmdline API
             'hello-cmd',
             # optional name of the command in the Python API

@@ -15,13 +15,13 @@ from datalad.support.constraints import EnsureChoice
 from datalad.interface.results import get_status_dict
 
 import logging
-lgr = logging.getLogger('datalad.helloworld.hello_cmd')
+lgr = logging.getLogger('datalad.slurm.hello_cmd')
 
 
 # decoration auto-generates standard help
 @build_doc
 # all commands must be derived from Interface
-class HelloWorld(Interface):
+class Slurm(Interface):
     # first docstring line is used a short description in the cmdline help
     # the rest is put in the verbose help and manpage
     """Short description of the command
