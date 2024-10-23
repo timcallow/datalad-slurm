@@ -3,9 +3,9 @@ from datalad.tests.utils_pytest import assert_result_count
 
 def test_register():
     import datalad.api as da
-    assert hasattr(da, 'hello_cmd')
+    assert hasattr(da, 'schedule')
     assert_result_count(
-        da.hello_cmd(),
+        da.schedule(),
         1,
         action='demo')
 

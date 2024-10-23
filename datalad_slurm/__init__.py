@@ -12,17 +12,16 @@ command_suite = (
     # description of the command suite, displayed in cmdline help
     "Demo DataLad command suite",
     [
-        # specification of a command, any number of commands can be defined
         (
-            # importable module that contains the command implementation
-            'datalad_slurm.hello_cmd',
+            # importable module that contains the schedule command implementation
+            'datalad_slurm.schedule',
             # name of the command class implementation in above module
-            'Slurm',
+            'Schedule',
             # optional name of the command in the cmdline API
-            'hello-cmd',
+            'schedule',
             # optional name of the command in the Python API
-            'hello_cmd'
-        ),
+            'schedule'
+        ),        
     ]
 )
 
