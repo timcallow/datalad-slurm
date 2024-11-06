@@ -14,6 +14,8 @@ __docformat__ = 'restructuredtext'
 import json
 import logging
 import os
+import subprocess
+import re
 import os.path as op
 import warnings
 from argparse import REMAINDER
@@ -672,14 +674,16 @@ def _execute_slurm_command(command, pwd):
     
     exc = None
     cmd_exitcode = None
-    runner = WitlessRunner(cwd=pwd)
     
     try:
         lgr.info("== Slurm submission start (output follows) =====")
         # Run the command and capture output
-        result = runner.run(
+        result = subprocess.run(
             command,
-            #protocol=WitlessRunner.protocol_class(stdout=True, stderr=True)
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=pwd
         )
         
         # Extract job ID from Slurm output
@@ -690,7 +694,7 @@ def _execute_slurm_command(command, pwd):
         if match:
             job_id = match.group(1)
             # Create job tracking file
-            tracking_file = os.path.join(pwd, f"job_{job_id}")
+            tracking_file = os.path.join(pwd, f"slurm-job-submission-{job_id}")
             try:
                 with open(tracking_file, 'w') as f:
                     # Could add additional metadata here if needed
@@ -702,13 +706,13 @@ def _execute_slurm_command(command, pwd):
         else:
             lgr.warning("Could not extract job ID from Slurm output")
             
-    except CommandError as e:
+    except subprocess.SubprocessError as e:
         exc = e
-        cmd_exitcode = e.code
+        cmd_exitcode = e.returncode if hasattr(e, 'returncode') else 1
         lgr.error(f"Command failed with exit code {cmd_exitcode}")
     
     lgr.info("== Slurm submission complete =====")
-    return cmd_exitcode or 0, exc
+    return cmd_exitcode or 0, exc, job_id
 
 def _prep_worktree(ds_path, pwd, globbed,
                    assume_ready=None, remove_outputs=False,
@@ -857,12 +861,22 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
     if not cmd:
         lgr.warning("No command given")
         return
+    if outputs is None:
+        outputs=['slurm-job-submission-*']
 
+    
+    else:
+        outputs.append('slurm-job-submission-*')
     specs = {
         k: ensure_list(v) for k, v in (('inputs', inputs),
                                        ('extra_inputs', extra_inputs),
                                        ('outputs', outputs))
     }
+
+    # if outputs is None:
+    #     outputs = ["slurm-job-submission-*"]
+    # else:
+    #     outputs.append["slurm-job-submission-*"]
 
     rel_pwd = rerun_info.get('pwd') if rerun_info else None
     if rel_pwd and dataset:
@@ -1012,7 +1026,7 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         return
 
     if not inject:
-        cmd_exitcode, exc = _execute_slurm_command(cmd_expanded, pwd)
+        cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info['exit'] = cmd_exitcode
 
     # Re-glob to capture any new outputs.
@@ -1041,6 +1055,13 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
 {}
 ^^^ Do not change lines above ^^^
 """
+    # append pending to the message
+
+    if message is not None:
+        message += f"\n Submitted batch job {slurm_job_id}: Pending"
+    else:
+        message = f"Submitted batch job {slurm_job_id}: Pending"
+    
     msg = msg.format(
         message if message is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record)
