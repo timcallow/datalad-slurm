@@ -652,7 +652,7 @@ def _format_iospecs(specs, **kwargs):
     ]
 
 
-def execute_slurm_command(command, pwd):
+def _execute_slurm_command(command, pwd):
     """Execute a Slurm submission command and create a job tracking file.
     
     Parameters
@@ -668,6 +668,8 @@ def execute_slurm_command(command, pwd):
         (exit_code, exception)
         exit_code is 0 on success, exception is None on success
     """
+    from datalad.cmd import WitlessRunner
+    
     exc = None
     cmd_exitcode = None
     runner = WitlessRunner(cwd=pwd)
@@ -677,7 +679,7 @@ def execute_slurm_command(command, pwd):
         # Run the command and capture output
         result = runner.run(
             command,
-            protocol=WitlessRunner.protocol_class(stdout=True, stderr=True)
+            #protocol=WitlessRunner.protocol_class(stdout=True, stderr=True)
         )
         
         # Extract job ID from Slurm output
