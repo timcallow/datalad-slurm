@@ -127,6 +127,7 @@ class Finish(Interface):
             every one. Care should also be taken when using [CMD: --onto
             CMD][PY: `onto` PY] because checking out a new HEAD can easily fail
             when the working tree has modifications."""),
+        jobs=jobs_opt,
     )
 
     @staticmethod
@@ -140,6 +141,7 @@ class Finish(Interface):
         onto=None,
         explicit=False,
         branch=None,
+        jobs=None,
     ):
         ds = require_dataset(
             dataset, check_installed=True, purpose="finish a SLURM job"
@@ -194,44 +196,232 @@ class Finish(Interface):
 
         try:
             results = _revrange_as_results(ds, revrange)
+            
         except ValueError as exc:
             ce = CapturedException(exc)
             yield get_status_dict("run", status="error", message=str(ce),
                                   exception=ce)
             return
+        
+        run_message = results["run_message"]
+        run_info = results["run_info"]
+        outputs_to_save = results["run_info"]["outputs"]
+
+        slurm_job_id = re.search(r'job (\d+):', run_message).group(1)
+
+        # print(run_info["outputs"])
+        # print(run_info["run_message"])
+
+        #rel_pwd = rerun_info.get('pwd') if rerun_info else None
+        rel_pwd = None # TODO might be able to get this from rerun info
+        if rel_pwd and dataset:
+            # recording is relative to the dataset
+            pwd = op.normpath(op.join(dataset.path, rel_pwd))
+            rel_pwd = op.relpath(pwd, dataset.path)
+        else:
+            pwd, rel_pwd = get_command_pwds(dataset)
+    
+        do_save = True
+        msg = u"""\
+        [DATALAD FINISH] {}
+
+        === Do not change lines below ===
+        {}
+        ^^^ Do not change lines above ^^^
+        """
+        # append pending to the message
+
+        if message is not None:
+            message += f"\n Processed batch job {slurm_job_id}: Complete"
+        else:
+            message = f"Processed batch job {slurm_job_id}: Complete"
+
+        # create the run record, either as a string, or written to a file
+        # depending on the config/request
+        # TODO sidecar param
+        record, record_path = _create_record(run_info, False, ds)
+
+        # abbreviate version of the command for illustrative purposes
+        # TODO: cmd_expanded fix up
+        cmd_shorty = _format_cmd_shorty(cmd_expanded)
+            
+        msg = msg.format(
+            message if message is not None else cmd_shorty,
+            '"{}"'.format(record) if record_path else record)
+
+        if do_save:
+            with chpwd(pwd):
+                for r in Save.__call__(
+                        dataset=ds,
+                        path=outputs_to_save,
+                        recursive=True,
+                        message=msg,
+                        jobs=jobs,
+                        return_type='generator',
+                        # we want this command and its parameterization to be in full
+                        # control about the rendering of results, hence we must turn
+                        # off internal rendering
+                        result_renderer='disabled',
+                        on_failure='ignore'):
+                    yield r
 
 
 
 def _revrange_as_results(dset, revrange):
     ds_repo = dset.repo
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"])
-    if not rev_lines:
+    rev_line = ds_repo.get_revisions(
+        revrange, fmt="%H %P", options=["--reverse", "--topo-order"])[0]
+    if not rev_line:
         return
 
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
-        full_msg = ds_repo.format_commit("%B", rev)
-        try:
-            msg, info = get_run_info(dset, full_msg)
-        except ValueError as exc:
-            # Recast the error so the message includes the revision.
-            raise ValueError(
-                "Error on {}'s message".format(rev)) from exc
+    # The strip() below is necessary because, with the format above, a
+    # commit without any parent has a trailing space. (We could also use a
+    # custom `rev-list --parents ...` call to avoid this.)
+    fields = rev_line.strip().split(" ")
+    rev, parents = fields[0], fields[1:]
+    res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
+    full_msg = ds_repo.format_commit("%B", rev)
+    try:
+        msg, info = get_run_info(dset, full_msg)
+    except ValueError as exc:
+        # Recast the error so the message includes the revision.
+        raise ValueError(
+            "Error on {}'s message".format(rev)) from exc
+    res["run_info"] = info
+    res["run_message"] = msg
 
-        if info is not None:
-            if len(parents) != 1:
-                lgr.warning(
-                    "%s has run information but is a %s commit; "
-                    "it will not be re-executed",
-                    rev,
-                    "merge" if len(parents) > 1 else "root")
-                continue
-            res["run_info"] = info
-            res["run_message"] = msg
-        yield dict(res, status="ok")        
+    # if info is not None:
+    #     if len(parents) != 1:
+    #         lgr.warning(
+    #             "%s has run information but is a %s commit; "
+    #             "it will not be re-executed",
+    #             rev,
+    #             "merge" if len(parents) > 1 else "root")
+    #         continue
+    #     res["run_info"] = info
+    #     res["run_message"] = msg
+    return dict(res, status="ok")        
+
+    
+
+
+def get_run_info(dset, message):
+    """Extract run information from `message`
+
+    Parameters
+    ----------
+    message : str
+        A commit message.
+
+    Returns
+    -------
+    A tuple with the command's message and a dict with run information. Both
+    these values are None if `message` doesn't have a run command.
+
+    Raises
+    ------
+    A ValueError if the information in `message` is invalid.
+    """
+    cmdrun_regex = r'\[DATALAD SCHEDULE\] (.*)=== Do not change lines below ' \
+                   r'===\n(.*)\n\^\^\^ Do not change lines above \^\^\^'
+    runinfo = re.match(cmdrun_regex, message, re.MULTILINE | re.DOTALL)
+    if not runinfo:
+        return None, None
+
+    rec_msg, runinfo = runinfo.groups()
+
+    try:
+        runinfo = json.loads(runinfo)
+    except Exception as e:
+        raise ValueError(
+            'cannot rerun command, command specification is not valid JSON'
+        ) from e
+    if not isinstance(runinfo, (list, dict)):
+        # this is a run record ID -> load the beast
+        record_dir = dset.config.get(
+            'datalad.run.record-directory',
+            default=op.join('.datalad', 'runinfo'))
+        record_path = op.join(dset.path, record_dir, runinfo)
+        if not op.lexists(record_path):
+            raise ValueError("Run record sidecar file not found: {}".format(record_path))
+        # TODO `get` the file
+        recs = load_stream(record_path, compressed=True)
+        # TODO check if there is a record
+        runinfo = next(recs)
+    if 'cmd' not in runinfo:
+        raise ValueError("Looks like a run commit but does not have a command")
+    return rec_msg.rstrip(), runinfo
+
+def get_command_pwds(dataset):
+    """Return the current directory for the dataset.
+
+    Parameters
+    ----------
+    dataset : Dataset
+
+    Returns
+    -------
+    A tuple, where the first item is the absolute path of the pwd and the
+    second is the pwd relative to the dataset's path.
+    """
+    # Follow path resolution logic describe in gh-3435.
+    if isinstance(dataset, Dataset):  # Paths relative to dataset.
+        pwd = dataset.path
+        rel_pwd = op.curdir
+    else:                             # Paths relative to current directory.
+        pwd = getpwd()
+        # Pass pwd to get_dataset_root instead of os.path.curdir to handle
+        # repos whose leading paths have a symlinked directory (see the
+        # TMPDIR="/var/tmp/sym link" test case).
+        if not dataset:
+            dataset = get_dataset_root(pwd)
+
+        if dataset:
+            rel_pwd = op.relpath(pwd, dataset)
+        else:
+            rel_pwd = pwd  # and leave handling to caller
+    return pwd, rel_pwd
+
+
+def _create_record(run_info, sidecar_flag, ds):
+    """
+    Returns
+    -------
+    str or None, str or None
+      The first value is either the full run record in JSON serialized form,
+      or content-based ID hash, if the record was written to a file. In that
+      latter case, the second value is the path to the record sidecar file,
+      or None otherwise.
+    """
+    record = json.dumps(run_info, indent=1, sort_keys=True, ensure_ascii=False)
+    if sidecar_flag is None:
+        use_sidecar = ds.config.get(
+            'datalad.run.record-sidecar', default=False)
+        use_sidecar = anything2bool(use_sidecar)
+    else:
+        use_sidecar = sidecar_flag
+
+    record_id = None
+    record_path = None
+    if use_sidecar:
+        # record ID is hash of record itself
+        from hashlib import md5
+        record_id = md5(record.encode('utf-8')).hexdigest()  # nosec
+        record_dir = ds.config.get(
+            'datalad.run.record-directory',
+            default=op.join('.datalad', 'runinfo'))
+        record_path = ds.pathobj / record_dir / record_id
+        if not op.lexists(record_path):
+            # go for compression, even for minimal records not much difference,
+            # despite offset cost
+            # wrap in list -- there is just one record
+            dump2stream([run_info], record_path, compressed=True)
+    return record_id or record, record_path
+
+def _format_cmd_shorty(cmd):
+    """Get short string representation from a cmd argument list"""
+    cmd_shorty = (join_cmdline(cmd) if isinstance(cmd, list) else cmd)
+    cmd_shorty = u'{}{}'.format(
+        cmd_shorty[:40],
+        '...' if len(cmd_shorty) > 40 else '')
+    return cmd_shorty
