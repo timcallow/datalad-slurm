@@ -861,22 +861,12 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
     if not cmd:
         lgr.warning("No command given")
         return
-    if outputs is None:
-        outputs=['slurm-job-submission-*']
-
-    
-    else:
-        outputs.append('slurm-job-submission-*')
     specs = {
         k: ensure_list(v) for k, v in (('inputs', inputs),
                                        ('extra_inputs', extra_inputs),
-                                       ('outputs', outputs))
+                                       ('outputs', outputs),
+                                       ('slurm_job_file', "slurm-job-submission-*"))
     }
-
-    # if outputs is None:
-    #     outputs = ["slurm-job-submission-*"]
-    # else:
-    #     outputs.append["slurm-job-submission-*"]
 
     rel_pwd = rerun_info.get('pwd') if rerun_info else None
     if rel_pwd and dataset:
@@ -1029,6 +1019,8 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info['exit'] = cmd_exitcode
 
+    # slurm_job_output = [f"slurm-job-submission-{slurm_job_id}"]
+
     # Re-glob to capture any new outputs.
     #
     # TODO: If a warning or error is desired when an --output pattern doesn't
@@ -1065,10 +1057,9 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
     msg = msg.format(
         message if message is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record)
-
-    outputs_to_save = globbed['outputs'].expand_strict() if explicit else None
-    if outputs_to_save is not None and record_path:
-        outputs_to_save.append(record_path)
+    
+    outputs_to_save = globbed['slurm_job_file'].expand_strict()
+    print(outputs_to_save, globbed["outputs"])
     do_save = outputs_to_save is None or outputs_to_save
     msg_path = None
     if not rerun_info and cmd_exitcode:
