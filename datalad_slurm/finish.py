@@ -216,7 +216,8 @@ class Finish(Interface):
         
         run_message = results["run_message"]
         run_info = results["run_info"]
-        outputs_to_save = results["run_info"]["outputs"]
+        # concatenate outputs from both submission and completion
+        outputs_to_save = ensure_list(outputs) + results["run_info"]["outputs"]
 
         slurm_job_id = re.search(r'job (\d+):', run_message).group(1)
 
@@ -228,7 +229,9 @@ class Finish(Interface):
             return
 
         # delete the slurm_job_id file
-        os.remove(f"slurm-job-submission-{slurm_job_id}")
+        slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
+        os.remove(slurm_submission_file)
+        outputs_to_save.append(slurm_submission_file)
 
         #rel_pwd = rerun_info.get('pwd') if rerun_info else None
         rel_pwd = None # TODO might be able to get this from rerun info
@@ -494,7 +497,10 @@ def check_job_complete(job_id):
                           capture_output=True, 
                           text=True, 
                           check=True)
-        return False
+        if result.stdout.strip():
+            return False
+        else:
+            return True
 
     except subprocess.CalledProcessError:
         return True
