@@ -219,12 +219,17 @@ class Finish(Interface):
         # concatenate outputs from both submission and completion
         outputs_to_save = ensure_list(outputs) + results["run_info"]["outputs"]
 
+        # should throw an error if user doesn't specify outputs or directory
+        if not outputs_to_save:
+            err_msg = "You must specify which outputs to save from this slurm run."
+            yield get_status_dict("run", status="error", message=err_msg)
+            return
+
         slurm_job_id = re.search(r'job (\d+):', run_message).group(1)
 
         job_complete = check_job_complete(slurm_job_id)
         if not job_complete:
-            print("Job still running")
-            yield get_status_dict("run", status="error", message="Slurm command not recognised",
+            yield get_status_dict("run", status="error", message="Slurm job still running",
                                   exception=subprocess.CalledProcessError)
             return
 
