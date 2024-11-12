@@ -1059,7 +1059,6 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         '"{}"'.format(record) if record_path else record)
     
     outputs_to_save = globbed['slurm_job_file'].expand_strict()
-    print(outputs_to_save, globbed["outputs"])
     do_save = outputs_to_save is None or outputs_to_save
     msg_path = None
     if not rerun_info and cmd_exitcode:
