@@ -63,8 +63,12 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-lgr = logging.getLogger("datalad.slurm.finish")
+from datalad.core.local.run import (
+    _create_record,
+    get_command_pwds
+)
 
+lgr = logging.getLogger("datalad.slurm.finish")
 
 class Finish(Interface):
     """Finishes (i.e. saves outputs) a slurm submitted job."""
@@ -237,6 +241,7 @@ class Finish(Interface):
         slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
         os.remove(slurm_submission_file)
         outputs_to_save.append(slurm_submission_file)
+        print(outputs_to_save)
 
         #rel_pwd = rerun_info.get('pwd') if rerun_info else None
         rel_pwd = None # TODO might be able to get this from rerun info
@@ -319,8 +324,6 @@ def _revrange_as_results(dset, revrange):
     #     res["run_message"] = msg
     return dict(res, status="ok")        
 
-    
-
 
 def get_run_info(dset, message):
     """Extract run information from `message`
@@ -368,110 +371,6 @@ def get_run_info(dset, message):
     if 'cmd' not in runinfo:
         raise ValueError("Looks like a run commit but does not have a command")
     return rec_msg.rstrip(), runinfo
-
-def get_command_pwds(dataset):
-    """Return the current directory for the dataset.
-
-    Parameters
-    ----------
-    dataset : Dataset
-
-    Returns
-    -------
-    A tuple, where the first item is the absolute path of the pwd and the
-    second is the pwd relative to the dataset's path.
-    """
-    # Follow path resolution logic describe in gh-3435.
-    if isinstance(dataset, Dataset):  # Paths relative to dataset.
-        pwd = dataset.path
-        rel_pwd = op.curdir
-    else:                             # Paths relative to current directory.
-        pwd = getpwd()
-        # Pass pwd to get_dataset_root instead of os.path.curdir to handle
-        # repos whose leading paths have a symlinked directory (see the
-        # TMPDIR="/var/tmp/sym link" test case).
-        if not dataset:
-            dataset = get_dataset_root(pwd)
-
-        if dataset:
-            rel_pwd = op.relpath(pwd, dataset)
-        else:
-            rel_pwd = pwd  # and leave handling to caller
-    return pwd, rel_pwd
-
-
-def _create_record(run_info, sidecar_flag, ds):
-    """
-    Returns
-    -------
-    str or None, str or None
-      The first value is either the full run record in JSON serialized form,
-      or content-based ID hash, if the record was written to a file. In that
-      latter case, the second value is the path to the record sidecar file,
-      or None otherwise.
-    """
-    record = json.dumps(run_info, indent=1, sort_keys=True, ensure_ascii=False)
-    if sidecar_flag is None:
-        use_sidecar = ds.config.get(
-            'datalad.run.record-sidecar', default=False)
-        use_sidecar = anything2bool(use_sidecar)
-    else:
-        use_sidecar = sidecar_flag
-
-    record_id = None
-    record_path = None
-    if use_sidecar:
-        # record ID is hash of record itself
-        from hashlib import md5
-        record_id = md5(record.encode('utf-8')).hexdigest()  # nosec
-        record_dir = ds.config.get(
-            'datalad.run.record-directory',
-            default=op.join('.datalad', 'runinfo'))
-        record_path = ds.pathobj / record_dir / record_id
-        if not op.lexists(record_path):
-            # go for compression, even for minimal records not much difference,
-            # despite offset cost
-            # wrap in list -- there is just one record
-            dump2stream([run_info], record_path, compressed=True)
-    return record_id or record, record_path
-
-def _format_cmd_shorty(cmd):
-    """Get short string representation from a cmd argument list"""
-    cmd_shorty = (join_cmdline(cmd) if isinstance(cmd, list) else cmd)
-    cmd_shorty = u'{}{}'.format(
-        cmd_shorty[:40],
-        '...' if len(cmd_shorty) > 40 else '')
-    return cmd_shorty
-
-def format_command(dset, command, **kwds):
-    """Plug in placeholders in `command`.
-
-    Parameters
-    ----------
-    dset : Dataset
-    command : str or list
-
-    `kwds` is passed to the `format` call. `inputs` and `outputs` are converted
-    to GlobbedPaths if necessary.
-
-    Returns
-    -------
-    formatted command (str)
-    """
-    command = normalize_command(command)
-    sfmt = SequenceFormatter()
-
-    for k, v in dset.config.items("datalad.run.substitutions"):
-        sub_key = k.replace("datalad.run.substitutions.", "")
-        if sub_key not in kwds:
-            kwds[sub_key] = v
-
-    for name in ["inputs", "outputs"]:
-        io_val = kwds.pop(name, None)
-        if not isinstance(io_val, GlobbedPaths):
-            io_val = GlobbedPaths(io_val, pwd=kwds.get("pwd"))
-        kwds[name] = list(map(quote_cmdlinearg, io_val.expand(dot=False)))
-    return sfmt.format(command, **kwds)
 
 
 def check_job_complete(job_id):
