@@ -117,6 +117,17 @@ class Finish(Interface):
             executed in the root directory of this dataset.""",
             constraints=EnsureDataset() | EnsureNone(),
         ),
+        outputs=Parameter(
+            args=("-o", "--output"),
+            dest="outputs",
+            metavar=("PATH"),
+            action='append',
+            doc="""Prepare this relative path to be an output file of the command. A
+            value of "." means "run :command:`datalad unlock .`" (and will fail
+            if some content isn't present). For any other value, if the content
+            of this file is present, unlock the file. Otherwise, remove it. The
+            value can also be a glob. [CMD: This option can be given more than
+            once. CMD]"""),
         explicit=Parameter(
             args=("--explicit",),
             action="store_true",
@@ -138,8 +149,9 @@ class Finish(Interface):
         *,
         dataset=None,
         message=None,
+        outputs=None,
         onto=None,
-        explicit=False,
+        explicit=True,
         branch=None,
         jobs=None,
     ):
@@ -196,7 +208,6 @@ class Finish(Interface):
 
         try:
             results = _revrange_as_results(ds, revrange)
-            
         except ValueError as exc:
             ce = CapturedException(exc)
             yield get_status_dict("run", status="error", message=str(ce),
@@ -209,8 +220,15 @@ class Finish(Interface):
 
         slurm_job_id = re.search(r'job (\d+):', run_message).group(1)
 
-        # print(run_info["outputs"])
-        # print(run_info["run_message"])
+        job_complete = check_job_complete(slurm_job_id)
+        if not job_complete:
+            print("Job still running")
+            yield get_status_dict("run", status="error", message="Slurm command not recognised",
+                                  exception=subprocess.CalledProcessError)
+            return
+
+        # delete the slurm_job_id file
+        os.remove(f"slurm-job-submission-{slurm_job_id}")
 
         #rel_pwd = rerun_info.get('pwd') if rerun_info else None
         rel_pwd = None # TODO might be able to get this from rerun info
@@ -223,28 +241,19 @@ class Finish(Interface):
     
         do_save = True
         msg = u"""\
-        [DATALAD FINISH] {}
+[DATALAD FINISH] {}
 
-        === Do not change lines below ===
-        {}
-        ^^^ Do not change lines above ^^^
+=== Do not change lines below ===
+{}
+^^^ Do not change lines above ^^^
         """
-        # append pending to the message
-
-        if message is not None:
-            message += f"\n Processed batch job {slurm_job_id}: Complete"
-        else:
-            message = f"Processed batch job {slurm_job_id}: Complete"
+        message = f"Processed batch job {slurm_job_id}: Complete"
 
         # create the run record, either as a string, or written to a file
         # depending on the config/request
         # TODO sidecar param
         record, record_path = _create_record(run_info, False, ds)
 
-        # abbreviate version of the command for illustrative purposes
-        # TODO: cmd_expanded fix up
-        cmd_shorty = _format_cmd_shorty(cmd_expanded)
-            
         msg = msg.format(
             message if message is not None else cmd_shorty,
             '"{}"'.format(record) if record_path else record)
@@ -425,3 +434,67 @@ def _format_cmd_shorty(cmd):
         cmd_shorty[:40],
         '...' if len(cmd_shorty) > 40 else '')
     return cmd_shorty
+
+def format_command(dset, command, **kwds):
+    """Plug in placeholders in `command`.
+
+    Parameters
+    ----------
+    dset : Dataset
+    command : str or list
+
+    `kwds` is passed to the `format` call. `inputs` and `outputs` are converted
+    to GlobbedPaths if necessary.
+
+    Returns
+    -------
+    formatted command (str)
+    """
+    command = normalize_command(command)
+    sfmt = SequenceFormatter()
+
+    for k, v in dset.config.items("datalad.run.substitutions"):
+        sub_key = k.replace("datalad.run.substitutions.", "")
+        if sub_key not in kwds:
+            kwds[sub_key] = v
+
+    for name in ["inputs", "outputs"]:
+        io_val = kwds.pop(name, None)
+        if not isinstance(io_val, GlobbedPaths):
+            io_val = GlobbedPaths(io_val, pwd=kwds.get("pwd"))
+        kwds[name] = list(map(quote_cmdlinearg, io_val.expand(dot=False)))
+    return sfmt.format(command, **kwds)
+
+
+def check_job_complete(job_id):
+    """
+    Check if a Slurm job is currently running using squeue command.
+    
+    Args:
+        job_id: The Slurm job ID to check (can be integer or string)
+        
+    Returns:
+        bool: True if the job is running, False if not found or completed
+        
+    Raises:
+        subprocess.CalledProcessError: If squeue command fails
+        ValueError: If job_id is not a valid integer
+    """
+
+    # Convert job_id to string and verify it's a valid integer
+    job_id = str(job_id)
+    if not job_id.isdigit():
+        raise ValueError(f"Invalid job ID: {job_id}. Must be a positive integer.")
+
+    # Run squeue command and capture output
+    cmd = ["squeue", "-j", job_id, "-h"]  # -h removes the header line
+
+    try:
+        result = subprocess.run(cmd, 
+                          capture_output=True, 
+                          text=True, 
+                          check=True)
+        return False
+
+    except subprocess.CalledProcessError:
+        return True
