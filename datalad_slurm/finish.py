@@ -231,10 +231,10 @@ class Finish(Interface):
 
         slurm_job_id = re.search(r'job (\d+):', run_message).group(1)
 
-        job_complete = check_job_complete(slurm_job_id)
-        if not job_complete:
-            yield get_status_dict("run", status="error", message="Slurm job still running",
-                                  exception=subprocess.CalledProcessError)
+        job_status = get_job_status(slurm_job_id)
+        if job_status != "COMPLETED":
+            message = f"Slurm job is not complete. Status is {job_status}."
+            yield get_status_dict("run", status="error", message=message)
             return
 
         # delete the slurm_job_id file
@@ -242,6 +242,7 @@ class Finish(Interface):
         os.remove(slurm_submission_file)
         outputs_to_save.append(slurm_submission_file)
         print(outputs_to_save)
+        # TODO: this is not saving model files (outputs from first job) for some reason
 
         #rel_pwd = rerun_info.get('pwd') if rerun_info else None
         rel_pwd = None # TODO might be able to get this from rerun info
@@ -373,38 +374,51 @@ def get_run_info(dset, message):
     return rec_msg.rstrip(), runinfo
 
 
-def check_job_complete(job_id):
+def get_job_status(job_id):
     """
-    Check if a Slurm job is currently running using squeue command.
+    Check the status of a Slurm job using sacct command.
     
     Args:
-        job_id: The Slurm job ID to check (can be integer or string)
+        job_id (Union[str, int]): The Slurm job ID to check
         
     Returns:
-        bool: True if the job is running, False if not found or completed
+        str: "COMPLETED" if the job completed successfully,
+             otherwise returns the actual job state (e.g., "RUNNING", "FAILED", "PENDING")
         
     Raises:
-        subprocess.CalledProcessError: If squeue command fails
-        ValueError: If job_id is not a valid integer
+        subprocess.CalledProcessError: If the sacct command fails
+        ValueError: If the job_id is invalid or job not found
     """
-
-    # Convert job_id to string and verify it's a valid integer
+    # Convert job_id to string if it's an integer
     job_id = str(job_id)
+    
+    # Validate job_id format (should be a positive integer)
     if not job_id.isdigit():
-        raise ValueError(f"Invalid job ID: {job_id}. Must be a positive integer.")
-
-    # Run squeue command and capture output
-    cmd = ["squeue", "-j", job_id, "-h"]  # -h removes the header line
-
+        raise ValueError(f"Invalid job ID: {job_id}. Job ID must be a positive integer.")
+    
     try:
-        result = subprocess.run(cmd, 
-                          capture_output=True, 
-                          text=True, 
-                          check=True)
-        if result.stdout.strip():
-            return False
-        else:
-            return True
+        # Run sacct command to get job status
+        # -n: no header
+        # -X: no step info
+        # -j: specify job ID
+        # -o State: only output the state
+        # --parsable2: machine-friendly output format
+        result = subprocess.run(
+            ['sacct', '-n', '-X', '-j', job_id, '-o', 'State', '--parsable2'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
 
-    except subprocess.CalledProcessError:
-        return True
+        # Get the state from the output
+        state = result.stdout.strip()
+
+        # If there's no output, the job doesn't exist
+        if not state:
+            raise ValueError(f"Job {job_id} not found")
+            
+        # Return the state as is
+        return state
+        
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Error running sacct command: {e.stderr}")
