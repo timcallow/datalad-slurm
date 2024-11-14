@@ -12,6 +12,7 @@ import warnings
 from argparse import REMAINDER
 from pathlib import Path
 from tempfile import mkdtemp
+import glob
 
 import datalad
 import datalad.support.ansi_colors as ac
@@ -221,7 +222,7 @@ class Finish(Interface):
         run_message = results["run_message"]
         run_info = results["run_info"]
         # concatenate outputs from both submission and completion
-        outputs_to_save = ensure_list(outputs) + results["run_info"]["outputs"]
+        outputs_to_save = ensure_list(outputs) + ensure_list(results["run_info"]["outputs"])
 
         # should throw an error if user doesn't specify outputs or directory
         if not outputs_to_save:
@@ -241,9 +242,14 @@ class Finish(Interface):
         slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
         os.remove(slurm_submission_file)
         outputs_to_save.append(slurm_submission_file)
-        print(outputs_to_save)
-        # TODO: this is not saving model files (outputs from first job) for some reason
 
+        # expand the wildcards
+        # TODO do this in a better way with GlobbedPaths
+        globbed_outputs = []
+        for k in outputs_to_save:
+            globbed_outputs.extend(glob.glob(k))
+
+        # TODO: this is not saving model files (outputs from first job) for some reason
         #rel_pwd = rerun_info.get('pwd') if rerun_info else None
         rel_pwd = None # TODO might be able to get this from rerun info
         if rel_pwd and dataset:
@@ -252,6 +258,7 @@ class Finish(Interface):
             rel_pwd = op.relpath(pwd, dataset.path)
         else:
             pwd, rel_pwd = get_command_pwds(dataset)
+
     
         do_save = True
         msg = u"""\
@@ -276,7 +283,7 @@ class Finish(Interface):
             with chpwd(pwd):
                 for r in Save.__call__(
                         dataset=ds,
-                        path=outputs_to_save,
+                        path=globbed_outputs,
                         recursive=True,
                         message=msg,
                         jobs=jobs,
