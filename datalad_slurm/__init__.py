@@ -31,7 +31,17 @@ command_suite = (
             'finish',
             # optional name of the command in the Python API
             'finish'
-        ),        
+        ),
+        (
+            # importable module that contains the schedule command implementation
+            'datalad_slurm.reschedule',
+            # name of the command class implementation in above module
+            'Reschedule',
+            # optional name of the command in the cmdline API
+            'reschedule',
+            # optional name of the command in the Python API
+            'reschedule'
+        ),                
     ]
 )
 
