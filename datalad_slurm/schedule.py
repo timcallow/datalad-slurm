@@ -306,7 +306,7 @@ class Schedule(Interface):
                         Path(msg_path).relative_to(ds_path))
             generic_result_renderer(res)
 
-def _execute_slurm_command(command, pwd):
+def _execute_slurm_command(command, pwd, save_tracking_file=True):
     """Execute a Slurm submission command and create a job tracking file.
     
     Parameters
@@ -343,7 +343,7 @@ def _execute_slurm_command(command, pwd):
         stdout = result.stdout
         match = re.search(r"Submitted batch job (\d+)", stdout)
         
-        if match:
+        if match and save_tracking_file:
             job_id = match.group(1)
             # Create job tracking file
             tracking_file = os.path.join(pwd, f"slurm-job-submission-{job_id}")
@@ -413,7 +413,7 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
                 parametric_record=False,
                 remove_outputs=False,
                 skip_dirtycheck=False,
-                yield_expanded=None):
+                yield_expanded=None,):
     """Run `cmd` in `dataset` and record the results.
 
     `Run.__call__` is a simple wrapper over this function. Aside from backward

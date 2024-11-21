@@ -25,7 +25,6 @@ from datalad.core.local.run import (
     _format_cmd_shorty,
     assume_ready_opt,
     format_command,
-    run_command,
 )
 from datalad.distribution.dataset import (
     EnsureDataset,
@@ -46,6 +45,34 @@ from datalad.support.constraints import (
 from datalad.support.exceptions import CapturedException
 from datalad.support.json_py import load_stream
 from datalad.support.param import Parameter
+
+from datalad.utils import (
+    SequenceFormatter,
+    chpwd,
+    ensure_list,
+    ensure_unicode,
+    get_dataset_root,
+    getpwd,
+    join_cmdline,
+    quote_cmdlinearg,
+)
+
+from datalad.core.local.run import (
+    _format_cmd_shorty,
+    get_command_pwds,
+    _display_basic,
+    prepare_inputs,
+    _prep_worktree,
+    format_command,
+    normalize_command,
+    _create_record,
+    _format_iospecs,
+    _get_substitutions,
+)
+
+from datalad.support.globbedpaths import GlobbedPaths
+
+from .schedule import _execute_slurm_command
 
 lgr = logging.getLogger('datalad.local.reschedule')
 
@@ -158,7 +185,7 @@ class Reschedule(Interface):
             doc="""Don't actually re-execute anything, just display what would
             be done. [CMD: Note: If you give this option, you most likely want
             to set --output-format to 'json' or 'json_pp'. CMD]"""),
-        assume_ready=rerun_assume_ready_opt,
+        assume_ready=reschedule_assume_ready_opt,
         explicit=Parameter(
             args=("--explicit",),
             action="store_true",
@@ -722,3 +749,288 @@ def new_or_modified(diff_results):
                 and r.get('state') in ['added', 'modified']:
             r.pop('status', None)
             yield r
+
+
+def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
+                assume_ready=None, explicit=False, message=None, sidecar=None,
+                dry_run=False, jobs=None,
+                extra_info=None,
+                rerun_info=None,
+                extra_inputs=None,
+                rerun_outputs=None,
+                inject=False,
+                parametric_record=False,
+                remove_outputs=False,
+                skip_dirtycheck=False,
+                yield_expanded=None,):
+    """Run `cmd` in `dataset` and record the results.
+
+    `Run.__call__` is a simple wrapper over this function. Aside from backward
+    compatibility kludges, the only difference is that `Run.__call__` doesn't
+    expose all the parameters of this function. The unexposed parameters are
+    listed below.
+
+    Parameters
+    ----------
+    extra_info : dict, optional
+        Additional information to dump with the json run record. Any value
+        given here will take precedence over the standard run key. Warning: To
+        avoid collisions with future keys added by `run`, callers should try to
+        use fairly specific key names and are encouraged to nest fields under a
+        top-level "namespace" key (e.g., the project or extension name).
+    rerun_info : dict, optional
+        Record from a previous run. This is used internally by `rerun`.
+    extra_inputs : list, optional
+        Inputs to use in addition to those specified by `inputs`. Unlike
+        `inputs`, these will not be injected into the {inputs} format field.
+    rerun_outputs : list, optional
+        Outputs, in addition to those in `outputs`, determined automatically
+        from a previous run. This is used internally by `rerun`.
+    inject : bool, optional
+        Record results as if a command was run, skipping input and output
+        preparation and command execution. In this mode, the caller is
+        responsible for ensuring that the state of the working tree is
+        appropriate for recording the command's results.
+    parametric_record : bool, optional
+        If enabled, substitution placeholders in the input/output specification
+        are retained verbatim in the run record. This enables using a single
+        run record for multiple different re-runs via individual
+        parametrization.
+    remove_outputs : bool, optional
+        If enabled, all declared outputs will be removed prior command
+        execution, except for paths that are also declared inputs.
+    skip_dirtycheck : bool, optional
+        If enabled, a check for dataset modifications is unconditionally
+        disabled, even if other parameters would indicate otherwise. This
+        can be used by callers that already performed analog verififcations
+        to avoid duplicate processing.
+    yield_expanded : {'inputs', 'outputs', 'both'}, optional
+        Include a 'expanded_%s' item into the run result with the expanded list
+        of paths matching the inputs and/or outputs specification,
+        respectively.
+
+
+    Yields
+    ------
+    Result records for the run.
+    """
+    if not cmd:
+        lgr.warning("No command given")
+        return
+    specs = {
+        k: ensure_list(v) for k, v in (('inputs', inputs),
+                                       ('extra_inputs', extra_inputs),
+                                       ('outputs', outputs))
+    }
+
+    rel_pwd = rerun_info.get('pwd') if rerun_info else None
+    if rel_pwd and dataset:
+        # recording is relative to the dataset
+        pwd = op.normpath(op.join(dataset.path, rel_pwd))
+        rel_pwd = op.relpath(pwd, dataset.path)
+    else:
+        pwd, rel_pwd = get_command_pwds(dataset)
+
+    ds = require_dataset(
+        dataset, check_installed=True,
+        purpose='track command outcomes')
+    ds_path = ds.path
+
+    lgr.debug('tracking command output underneath %s', ds)
+
+    # skip for callers that already take care of this
+    if not (skip_dirtycheck or rerun_info or inject):
+        # For explicit=True, we probably want to check whether any inputs have
+        # modifications. However, we can't just do is_dirty(..., path=inputs)
+        # because we need to consider subdatasets and untracked files.
+        # MIH: is_dirty() is gone, but status() can do all of the above!
+        if not explicit and ds.repo.dirty:
+            yield get_status_dict(
+                'run',
+                ds=ds,
+                status='impossible',
+                message=(
+                    'clean dataset required to detect changes from command; '
+                    'use `datalad status` to inspect unsaved changes'))
+            return
+
+    # everything below expects the string-form of the command
+    cmd = normalize_command(cmd)
+    # pull substitutions from config
+    cmd_fmt_kwargs = _get_substitutions(ds)
+    # amend with unexpanded dependency/output specifications, which might
+    # themselves contain substitution placeholder
+    for n, val in specs.items():
+        if val:
+            cmd_fmt_kwargs[n] = val
+
+    # apply the substitution to the IO specs
+    expanded_specs = {
+        k: _format_iospecs(v, **cmd_fmt_kwargs) for k, v in specs.items()
+    }
+    # try-expect to catch expansion issues in _format_iospecs() which
+    # expands placeholders in dependency/output specification before
+    # globbing
+    try:
+        globbed = {
+            k: GlobbedPaths(
+                v,
+                pwd=pwd,
+                expand=expand in (
+                    # extra_inputs follow same expansion rules as `inputs`.
+                    ["both"] + (['outputs'] if k == 'outputs' else ['inputs'])
+                ))
+            for k, v in expanded_specs.items()
+        }
+    except KeyError as exc:
+        yield get_status_dict(
+            'run',
+            ds=ds,
+            status='impossible',
+            message=(
+                'input/output specification has an unrecognized '
+                'placeholder: %s', exc))
+        return
+
+    if not (inject or dry_run):
+        yield from _prep_worktree(
+            ds_path, pwd, globbed,
+            assume_ready=assume_ready,
+            remove_outputs=remove_outputs,
+            rerun_outputs=rerun_outputs,
+            jobs=None)
+    else:
+        # If an inject=True caller wants to override the exit code, they can do
+        # so in extra_info.
+        cmd_exitcode = 0
+        exc = None
+
+    # prepare command formatting by extending the set of configurable
+    # substitutions with the essential components
+    cmd_fmt_kwargs.update(
+        pwd=pwd,
+        dspath=ds_path,
+        # Check if the command contains "{tmpdir}" to avoid creating an
+        # unnecessary temporary directory in most but not all cases.
+        tmpdir=mkdtemp(prefix="datalad-run-") if "{tmpdir}" in cmd else "",
+        # the following override any matching non-glob substitution
+        # values
+        inputs=globbed['inputs'],
+        outputs=globbed['outputs'],
+    )
+    try:
+        cmd_expanded = format_command(ds, cmd, **cmd_fmt_kwargs)
+    except KeyError as exc:
+        yield get_status_dict(
+            'run',
+            ds=ds,
+            status='impossible',
+            message=('command has an unrecognized placeholder: %s',
+                     exc))
+        return
+
+    # amend commit message with `run` info:
+    # - pwd if inside the dataset
+    # - the command itself
+    # - exit code of the command
+    run_info = {
+        'cmd': cmd,
+        # rerun does not handle any prop being None, hence all
+        # the `or/else []`
+        'chain': rerun_info["chain"] if rerun_info else [],
+    }
+    # for all following we need to make sure that the raw
+    # specifications, incl. any placeholders make it into
+    # the run-record to enable "parametric" re-runs
+    # ...except when expansion was requested
+    for k, v in specs.items():
+        run_info[k] = globbed[k].paths \
+            if expand in ["both"] + (
+                ['outputs'] if k == 'outputs' else ['inputs']) \
+            else (v if parametric_record
+                  else expanded_specs[k]) or []
+
+    if rel_pwd is not None:
+        # only when inside the dataset to not leak information
+        run_info['pwd'] = rel_pwd
+    if ds.id:
+        run_info["dsid"] = ds.id
+    if extra_info:
+        run_info.update(extra_info)
+
+    if dry_run:
+        yield get_status_dict(
+            "run [dry-run]", ds=ds, status="ok", message="Dry run",
+            run_info=run_info,
+            dry_run_info=dict(
+                cmd_expanded=cmd_expanded,
+                pwd_full=pwd,
+                **{k: globbed[k].expand() for k in ('inputs', 'outputs')},
+            )
+        )
+        return
+
+    if not inject:
+        cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd, save_tracking_file=False)
+        run_info['exit'] = cmd_exitcode
+
+    # slurm_job_output = [f"slurm-job-submission-{slurm_job_id}"]
+
+    # Re-glob to capture any new outputs.
+    #
+    # TODO: If a warning or error is desired when an --output pattern doesn't
+    # have a match, this would be the spot to do it.
+    if explicit or expand in ["outputs", "both"]:
+        # also for explicit mode we have to re-glob to be able to save all
+        # matching outputs
+        globbed['outputs'].expand(refresh=True)
+        if expand in ["outputs", "both"]:
+            run_info["outputs"] = globbed['outputs'].paths
+
+    # create the run record, either as a string, or written to a file
+    # depending on the config/request
+    record, record_path = _create_record(run_info, sidecar, ds)
+
+    # abbreviate version of the command for illustrative purposes
+    cmd_shorty = _format_cmd_shorty(cmd_expanded)
+
+    msg_path = None
+
+    expected_exit = rerun_info.get("exit", 0) if rerun_info else None
+    if cmd_exitcode and expected_exit != cmd_exitcode:
+        status = "error"
+    else:
+        status = "ok"
+
+    run_result = get_status_dict(
+        "run", ds=ds,
+        status=status,
+        # use the abbrev. command as the message to give immediate clarity what
+        # completed/errors in the generic result rendering
+        message=cmd_shorty,
+        run_info=run_info,
+        # use the same key that `get_status_dict()` would/will use
+        # to record the exit code in case of an exception
+        exit_code=cmd_exitcode,
+        exception=exc,
+        # Provide msg_path and explicit outputs so that, under
+        # on_failure='stop', callers can react to a failure and then call
+        # save().
+        msg_path=str(msg_path) if msg_path else None,
+    )
+    if record_path:
+        # we the record is in a sidecar file, report its ID
+        run_result['record_id'] = record
+    for s in ('inputs', 'outputs'):
+        # this enables callers to further inspect the outputs without
+        # performing globbing again. Together with remove_outputs=True
+        # these would be guaranteed to be the outcome of the executed
+        # command. in contrast to `outputs_to_save` this does not
+        # include aux file, such as the run record sidecar file.
+        # calling .expand_strict() again is largely reporting cached
+        # information
+        # (format: relative paths)
+        if yield_expanded in (s, 'both'):
+            run_result[f'expanded_{s}'] = globbed[s].expand_strict()
+    yield run_result
+
