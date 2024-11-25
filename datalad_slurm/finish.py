@@ -230,7 +230,7 @@ class Finish(Interface):
             yield get_status_dict("run", status="error", message=err_msg)
             return
 
-        slurm_job_id = re.search(r'job (\d+):', run_message).group(1)
+        slurm_job_id = results["run_info"]["slurm_job_id"]
 
         job_status = get_job_status(slurm_job_id)
         if job_status != "COMPLETED":
@@ -241,13 +241,14 @@ class Finish(Interface):
         # delete the slurm_job_id file
         slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
         os.remove(slurm_submission_file)
-        outputs_to_save.append(slurm_submission_file)
 
         # expand the wildcards
         # TODO do this in a better way with GlobbedPaths
         globbed_outputs = []
         for k in outputs_to_save:
             globbed_outputs.extend(glob.glob(k))
+        globbed_outputs.append(slurm_submission_file)
+
 
         # TODO: this is not saving model files (outputs from first job) for some reason
         #rel_pwd = rerun_info.get('pwd') if rerun_info else None

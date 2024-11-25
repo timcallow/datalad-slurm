@@ -627,6 +627,9 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         run_info['exit'] = cmd_exitcode
         slurm_outputs = get_slurm_output_files(slurm_job_id)
         run_info["outputs"].extend(slurm_outputs)
+        
+    # add the slurm job id to the run info
+    run_info["slurm_job_id"] = slurm_job_id
 
     # Re-glob to capture any new outputs.
     #
