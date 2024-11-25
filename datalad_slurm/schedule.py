@@ -471,8 +471,7 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
     specs = {
         k: ensure_list(v) for k, v in (('inputs', inputs),
                                        ('extra_inputs', extra_inputs),
-                                       ('outputs', outputs),
-                                       ('slurm_job_file', "slurm-job-submission-*"))
+                                       ('outputs', outputs))
     }
 
     rel_pwd = rerun_info.get('pwd') if rerun_info else None
@@ -621,12 +620,13 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
             )
         )
         return
-
+        
+    # TODO what happens in case of inject??
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info['exit'] = cmd_exitcode
-
-    # slurm_job_output = [f"slurm-job-submission-{slurm_job_id}"]
+        slurm_outputs = get_slurm_output_files(slurm_job_id)
+        run_info["outputs"].extend(slurm_outputs)
 
     # Re-glob to capture any new outputs.
     #
@@ -665,7 +665,8 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         message if message is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record)
     
-    outputs_to_save = globbed['slurm_job_file'].expand_strict()
+    #outputs_to_save = globbed['slurm_job_file'].expand_strict()
+    outputs_to_save = [f"slurm-job-submission-{slurm_job_id}"]
     do_save = outputs_to_save is None or outputs_to_save
     msg_path = None
     if not rerun_info and cmd_exitcode:
@@ -730,3 +731,65 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
                     result_renderer='disabled',
                     on_failure='ignore'):
                 yield r
+
+def get_slurm_output_files(job_id):
+    """
+    Gets the relative paths to StdOut and StdErr files for a Slurm job.
+    
+    Args:
+        job_id (str): The Slurm job ID
+        
+    Returns:
+        list: List containing relative path(s) to output files. If StdOut and StdErr
+              are the same file, returns a single path.
+    
+    Raises:
+        subprocess.CalledProcessError: If scontrol command fails
+        ValueError: If required file paths cannot be found in scontrol output
+    """
+    # Run scontrol command and get output
+    try:
+        result = subprocess.run(['scontrol', 'show', 'job', str(job_id)], 
+                              capture_output=True, 
+                              text=True, 
+                              check=True)
+    except subprocess.CalledProcessError as e:
+        raise subprocess.CalledProcessError(
+            e.returncode,
+            e.cmd,
+            f"Failed to get job information: {e.output}"
+        )
+    
+    # Parse output to find StdOut and StdErr
+    output_lines = result.stdout.split('\n')
+    stdout_path = None
+    stderr_path = None
+    
+    for line in output_lines:
+        if 'StdOut=' in line:
+            stdout_path = line.split('StdOut=')[1].split()[0]
+        if 'StdErr=' in line:
+            stderr_path = line.split('StdErr=')[1].split()[0]
+    
+    if not stdout_path or not stderr_path:
+        raise ValueError("Could not find StdOut or StdErr paths in scontrol output")
+    
+    # Get current working directory and convert to Path object
+    cwd = Path.cwd()
+    
+    # Convert output paths to Path objects
+    stdout_path = Path(stdout_path)
+    stderr_path = Path(stderr_path)
+    
+    # Get relative paths
+    try:
+        rel_stdout = os.path.relpath(stdout_path, cwd)
+        rel_stderr = os.path.relpath(stderr_path, cwd)
+    except ValueError as e:
+        raise ValueError(f"Cannot compute relative path: {e}")
+    
+    # If paths are the same, return just one
+    if rel_stdout == rel_stderr:
+        return [rel_stdout]
+    else:
+        return [rel_stdout, rel_stderr]
