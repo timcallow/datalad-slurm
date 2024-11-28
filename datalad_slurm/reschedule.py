@@ -8,7 +8,7 @@
 # ## ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 """Reschedule commands recorded with `datalad schedule`"""
 
-__docformat__ = 'restructuredtext'
+__docformat__ = "restructuredtext"
 
 
 import json
@@ -72,10 +72,10 @@ from datalad.core.local.run import (
 
 from datalad.support.globbedpaths import GlobbedPaths
 
-#from .schedule import _execute_slurm_command
+# from .schedule import _execute_slurm_command
 from .schedule import run_command
 
-lgr = logging.getLogger('datalad.local.reschedule')
+lgr = logging.getLogger("datalad.local.reschedule")
 
 reschedule_assume_ready_opt = copy(assume_ready_opt)
 reschedule_assume_ready_opt._doc += """
@@ -120,6 +120,7 @@ class Reschedule(Interface):
       dataset to a previous state. The working trees of any subdatasets remain
       unchanged.
     """
+
     _params_ = dict(
         revision=Parameter(
             args=("revision",),
@@ -131,7 +132,8 @@ class Reschedule(Interface):
             like "HEAD" but resolves to the main branch when on an adjusted
             branch.""",
             default=None,
-            constraints=EnsureStr() | EnsureNone()),
+            constraints=EnsureStr() | EnsureNone(),
+        ),
         since=Parameter(
             args=("--since",),
             doc="""If `since` is a commit-ish, the commands from all commits
@@ -141,12 +143,17 @@ class Reschedule(Interface):
             parent of the first commit that contains a recorded command (i.e.,
             all commands in :command:`git log REVISION` will be
             re-executed).""",
-            constraints=EnsureStr() | EnsureNone()),
+            constraints=EnsureStr() | EnsureNone(),
+        ),
         branch=Parameter(
             metavar="NAME",
-            args=("-b", "--branch",),
+            args=(
+                "-b",
+                "--branch",
+            ),
             doc="create and checkout this branch before reschedulening the commands.",
-            constraints=EnsureStr() | EnsureNone()),
+            constraints=EnsureStr() | EnsureNone(),
+        ),
         onto=Parameter(
             metavar="base",
             args=("--onto",),
@@ -157,21 +164,27 @@ class Reschedule(Interface):
             a detached state otherwise. As a special case, an empty value for
             this option means the parent of the first run commit in the
             specified revision list.""",
-            constraints=EnsureStr() | EnsureNone()),
+            constraints=EnsureStr() | EnsureNone(),
+        ),
         message=Parameter(
-            args=("-m", "--message",),
+            args=(
+                "-m",
+                "--message",
+            ),
             metavar="MESSAGE",
             doc="""use MESSAGE for the reran commit rather than the
             recorded commit message.  In the case of a multi-commit
             rerun, all the reran commits will have this message.""",
-            constraints=EnsureStr() | EnsureNone()),
+            constraints=EnsureStr() | EnsureNone(),
+        ),
         script=Parameter(
             args=("--script",),
             metavar="FILE",
             doc="""extract the commands into [CMD: FILE CMD][PY: this file PY]
             rather than rerunning. Use - to write to stdout instead. [CMD: This
             option implies --report. CMD]""",
-            constraints=EnsureStr() | EnsureNone()),
+            constraints=EnsureStr() | EnsureNone(),
+        ),
         dataset=Parameter(
             args=("-d", "--dataset"),
             doc="""specify the dataset from which to rerun a recorded
@@ -179,13 +192,15 @@ class Reschedule(Interface):
             identify the dataset based on the current working
             directory. If a dataset is given, the command will be
             executed in the root directory of this dataset.""",
-            constraints=EnsureDataset() | EnsureNone()),
+            constraints=EnsureDataset() | EnsureNone(),
+        ),
         report=Parameter(
             args=("--report",),
             action="store_true",
             doc="""Don't actually re-execute anything, just display what would
             be done. [CMD: Note: If you give this option, you most likely want
-            to set --output-format to 'json' or 'json_pp'. CMD]"""),
+            to set --output-format to 'json' or 'json_pp'. CMD]""",
+        ),
         assume_ready=reschedule_assume_ready_opt,
         explicit=Parameter(
             args=("--explicit",),
@@ -196,91 +211,117 @@ class Reschedule(Interface):
             Note that when several run commits are specified, this applies to
             every one. Care should also be taken when using [CMD: --onto
             CMD][PY: `onto` PY] because checking out a new HEAD can easily fail
-            when the working tree has modifications."""),
-        jobs=jobs_opt
+            when the working tree has modifications.""",
+        ),
+        jobs=jobs_opt,
     )
 
     _examples_ = [
-        dict(text="Re-execute the command from the previous commit",
-             code_py="reschedule()",
-             code_cmd="datalad reschedule"),
-        dict(text="Re-execute any commands in the last five commits",
-             code_py="reschedule(since='HEAD~5')",
-             code_cmd="datalad reschedule --since=HEAD~5"),
-        dict(text="Do the same as above, but re-execute the commands on top of "
-                  "HEAD~5 in a detached state",
-             code_py="reschedule(onto='', since='HEAD~5')",
-             code_cmd="datalad reschedule --onto= --since=HEAD~5"),
-        dict(text="Re-execute all previous commands and compare the old and "
-                  "new results",
-             code_cmd="""% # on master branch
+        dict(
+            text="Re-execute the command from the previous commit",
+            code_py="reschedule()",
+            code_cmd="datalad reschedule",
+        ),
+        dict(
+            text="Re-execute any commands in the last five commits",
+            code_py="reschedule(since='HEAD~5')",
+            code_cmd="datalad reschedule --since=HEAD~5",
+        ),
+        dict(
+            text="Do the same as above, but re-execute the commands on top of "
+            "HEAD~5 in a detached state",
+            code_py="reschedule(onto='', since='HEAD~5')",
+            code_cmd="datalad reschedule --onto= --since=HEAD~5",
+        ),
+        dict(
+            text="Re-execute all previous commands and compare the old and "
+            "new results",
+            code_cmd="""% # on master branch
                 % datalad reschedule --branch=verify --since=
                 % # now on verify branch
                 % datalad diff --revision=master..
-                % git log --oneline --left-right --cherry-pick master..."""),
+                % git log --oneline --left-right --cherry-pick master...""",
+        ),
     ]
 
-
     @staticmethod
-    @datasetmethod(name='reschedule')
+    @datasetmethod(name="reschedule")
     @eval_results
     def __call__(
-            revision=None,
-            *,
-            since=None,
-            dataset=None,
-            branch=None,
-            message=None,
-            onto=None,
-            script=None,
-            report=False,
-            assume_ready=None,
-            explicit=False,
-            jobs=None):
+        revision=None,
+        *,
+        since=None,
+        dataset=None,
+        branch=None,
+        message=None,
+        onto=None,
+        script=None,
+        report=False,
+        assume_ready=None,
+        explicit=False,
+        jobs=None
+    ):
 
         ds = require_dataset(
-            dataset, check_installed=True,
-            purpose='reschedule a command')
+            dataset, check_installed=True, purpose="reschedule a command"
+        )
         ds_repo = ds.repo
 
-        lgr.debug('reschedulening command output underneath %s', ds)
+        lgr.debug("reschedulening command output underneath %s", ds)
 
         if script is None and not (report or explicit) and ds_repo.dirty:
             yield get_status_dict(
-                'run',
+                "run",
                 ds=ds,
-                status='impossible',
+                status="impossible",
                 message=(
-                    'clean dataset required to detect changes from command; '
-                    'use `datalad status` to inspect unsaved changes'))
+                    "clean dataset required to detect changes from command; "
+                    "use `datalad status` to inspect unsaved changes"
+                ),
+            )
             return
 
         if not ds_repo.get_hexsha():
             yield get_status_dict(
-                'run', ds=ds,
-                status='impossible',
-                message='cannot reschedule command, nothing recorded')
+                "run",
+                ds=ds,
+                status="impossible",
+                message="cannot reschedule command, nothing recorded",
+            )
             return
 
         # ATTN: Use get_corresponding_branch() rather than is_managed_branch()
         # for compatibility with a plain GitRepo.
-        if (onto is not None or branch is not None) and \
-           ds_repo.get_corresponding_branch():
+        if (
+            onto is not None or branch is not None
+        ) and ds_repo.get_corresponding_branch():
             yield get_status_dict(
-                "run", ds=ds, status="impossible",
-                message=("--%s is incompatible with adjusted branch",
-                         "branch" if onto is None else "onto"))
+                "run",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "--%s is incompatible with adjusted branch",
+                    "branch" if onto is None else "onto",
+                ),
+            )
             return
 
         if branch and branch in ds_repo.get_branches():
             yield get_status_dict(
-                "run", ds=ds, status="error",
-                message="branch '{}' already exists".format(branch))
+                "run",
+                ds=ds,
+                status="error",
+                message="branch '{}' already exists".format(branch),
+            )
             return
 
+        # get branch
+        rev_branch = (
+            ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+        )
+
         if revision is None:
-            revision = ds_repo.get_corresponding_branch() or \
-                ds_repo.get_active_branch() or "HEAD"
+            revision = rev_branch
 
         if not ds_repo.commit_exists(revision + "^"):
             # Only a single commit is reachable from `revision`.  In
@@ -293,24 +334,73 @@ class Reschedule(Interface):
         else:
             revrange = "{}..{}".format(since, revision)
 
+        # get the revrange to check for datalad finish corresponding command
+        revrange_full = "{}..{}".format(revision, rev_branch)
+        print(revrange_full)
+        job_finished = check_finish_exists(ds, revrange_full)
+        print("Job finished: ", job_finished)
         results = _rerun_as_results(ds, revrange, since, branch, onto, message)
         if script:
             handler = _get_script_handler(script, since, revision)
         elif report:
             handler = _report
         else:
-            handler = partial(_rerun, assume_ready=assume_ready,
-                              explicit=explicit, jobs=jobs)
+            handler = partial(
+                _rerun, assume_ready=assume_ready, explicit=explicit, jobs=jobs
+            )
 
         for res in handler(ds, results):
             yield res
 
 
+def check_finish_exists(dset, revrange):
+    ds_repo = dset.repo
+    rev_lines = ds_repo.get_revisions(
+        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
+    )
+    if not rev_lines:
+        return
+
+    slurm_job_id = None
+    for rev_line in rev_lines:
+        print(rev_line)
+        # The strip() below is necessary because, with the format above, a
+        # commit without any parent has a trailing space. (We could also use a
+        # custom `rev-list --parents ...` call to avoid this.)
+        fields = rev_line.strip().split(" ")
+        rev, parents = fields[0], fields[1:]
+        if slurm_job_id is None:
+            rev = parents[0]
+            runtype = "SCHEDULE"
+        else:
+            runtype="FINISH"
+        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
+        full_msg = ds_repo.format_commit("%B", rev)
+        try:
+            msg, info = get_run_info(dset, full_msg, runtype=runtype)
+        except ValueError as exc:
+            # Recast the error so the message includes the revision.
+            raise ValueError("Error on {}'s message".format(rev)) from exc
+        print(msg)
+
+        # get the original slurm job id
+        if slurm_job_id is None:
+            slurm_job_id = info["slurm_job_id"]
+        if "DATALAD FINISH" not in msg:
+            pass
+
+        # confirms that a finish command matches the slurm job id
+        if info["slurm_job_id"] == slurm_job_id:
+            return True
+
+    return False
+
+
 def _revrange_as_results(dset, revrange):
     ds_repo = dset.repo
     rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"])
-    print(rev_lines)
+        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
+    )
     if not rev_lines:
         return
 
@@ -326,8 +416,7 @@ def _revrange_as_results(dset, revrange):
             msg, info = get_run_info(dset, full_msg)
         except ValueError as exc:
             # Recast the error so the message includes the revision.
-            raise ValueError(
-                "Error on {}'s message".format(rev)) from exc
+            raise ValueError("Error on {}'s message".format(rev)) from exc
 
         if info is not None:
             if len(parents) != 1:
@@ -335,7 +424,8 @@ def _revrange_as_results(dset, revrange):
                     "%s has run information but is a %s commit; "
                     "it will not be re-executed",
                     rev,
-                    "merge" if len(parents) > 1 else "root")
+                    "merge" if len(parents) > 1 else "root",
+                )
                 continue
             res["run_info"] = info
             res["run_message"] = msg
@@ -353,8 +443,7 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message):
         results = _revrange_as_results(dset, revrange)
     except ValueError as exc:
         ce = CapturedException(exc)
-        yield get_status_dict("run", status="error", message=str(ce),
-                              exception=ce)
+        yield get_status_dict("run", status="error", message=str(ce), exception=ce)
         return
 
     ds_repo = dset.repo
@@ -363,8 +452,11 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message):
     results = list(dropwhile(lambda r: "run_info" not in r, results))
     if not results:
         yield get_status_dict(
-            "run", status="impossible", ds=dset,
-            message=("No run commits found in range %s", revrange))
+            "run",
+            status="impossible",
+            ds=dset,
+            message=("No run commits found in range %s", revrange),
+        )
         return
 
     if onto is not None and onto.strip() == "":
@@ -372,9 +464,11 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message):
 
     if onto and not ds_repo.commit_exists(onto):
         yield get_status_dict(
-            "run", ds=dset, status="error",
-            message=("Revision specified for --onto (%s) does not exist.",
-                     onto))
+            "run",
+            ds=dset,
+            status="error",
+            message=("Revision specified for --onto (%s) does not exist.", onto),
+        )
         return
 
     start_point = onto or "HEAD"
@@ -387,14 +481,13 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message):
             commit=ds_repo.get_hexsha(start_point),
             branch=branch,
             rerun_action="checkout",
-            status="ok")
+            status="ok",
+        )
 
     def skip_or_pick(hexsha, result, msg):
         result["rerun_action"] = "skip-or-pick"
         shortrev = ds_repo.get_hexsha(hexsha, short=True)
-        result["message"] = (
-            "%s %s; %s",
-            shortrev, msg, "skipping or cherry picking")
+        result["message"] = ("%s %s; %s", shortrev, msg, "skipping or cherry picking")
 
     for res in results:
         hexsha = res["commit"]
@@ -446,8 +539,7 @@ def _rerun(dset, results, assume_ready=None, explicit=False, jobs=None):
             else:
                 checkout_options = ["--detach"]
                 branch_to_restore = None
-            ds_repo.checkout(res_hexsha,
-                             options=checkout_options)
+            ds_repo.checkout(res_hexsha, options=checkout_options)
             head = onto = res_hexsha
             continue
 
@@ -467,8 +559,9 @@ def _rerun(dset, results, assume_ready=None, explicit=False, jobs=None):
                     ds_repo.checkout(res_hexsha)
             elif res_hexsha != head:
                 if ds_repo.is_ancestor(res_hexsha, onto):
-                    new_parents = [p for p in new_parents
-                                   if not ds_repo.is_ancestor(p, onto)]
+                    new_parents = [
+                        p for p in new_parents if not ds_repo.is_ancestor(p, onto)
+                    ]
                 if new_parents:
                     if new_parents[0] != head:
                         # Keep the direction of the original merge.
@@ -476,9 +569,15 @@ def _rerun(dset, results, assume_ready=None, explicit=False, jobs=None):
                     if len(new_parents) > 1:
                         msg = ds_repo.format_commit("%B", res_hexsha)
                         ds_repo.call_git(
-                            ["merge", "-m", msg,
-                             "--no-ff", "--allow-unrelated-histories"] +
-                            new_parents[1:])
+                            [
+                                "merge",
+                                "-m",
+                                msg,
+                                "--no-ff",
+                                "--allow-unrelated-histories",
+                            ]
+                            + new_parents[1:]
+                        )
                     head = ds_repo.get_hexsha()
                     new_bases[res_hexsha] = head
             yield res
@@ -536,22 +635,27 @@ def _rerun(dset, results, assume_ready=None, explicit=False, jobs=None):
             auto_outputs = (ap["path"] for ap in new_or_modified(res["diff"]))
             outputs = run_info.get("outputs", [])
             outputs_dir = op.join(dset.path, run_info["pwd"])
-            auto_outputs = [p for p in auto_outputs
-                            # run records outputs relative to the "pwd" field.
-                            if op.relpath(p, outputs_dir) not in outputs]
+            auto_outputs = [
+                p
+                for p in auto_outputs
+                # run records outputs relative to the "pwd" field.
+                if op.relpath(p, outputs_dir) not in outputs
+            ]
             message = res["rerun_message"] or res["run_message"]
             message = check_job_pattern(message)
-            for r in run_command(run_info['cmd'],
-                                 dataset=dset,
-                                 inputs=run_info.get("inputs", []),
-                                 extra_inputs=run_info.get("extra_inputs", []),
-                                 outputs=outputs,
-                                 assume_ready=assume_ready,
-                                 explicit=explicit,
-                                 rerun_outputs=auto_outputs,
-                                 message=message,
-                                 jobs=jobs,
-                                 rerun_info=run_info):
+            for r in run_command(
+                run_info["cmd"],
+                dataset=dset,
+                inputs=run_info.get("inputs", []),
+                extra_inputs=run_info.get("extra_inputs", []),
+                outputs=outputs,
+                assume_ready=assume_ready,
+                explicit=explicit,
+                rerun_outputs=auto_outputs,
+                message=message,
+                jobs=jobs,
+                rerun_info=run_info,
+            ):
                 yield r
         new_head = ds_repo.get_hexsha()
         if new_head not in [head, res_hexsha]:
@@ -561,23 +665,22 @@ def _rerun(dset, results, assume_ready=None, explicit=False, jobs=None):
     if branch_to_restore:
         # The user asked us to replay the sequence onto a branch, but the
         # history had merges, so we're in a detached state.
-        ds_repo.update_ref("refs/heads/" + branch_to_restore,
-                           "HEAD")
+        ds_repo.update_ref("refs/heads/" + branch_to_restore, "HEAD")
         ds_repo.checkout(branch_to_restore)
 
 
 def _get_rerun_log_msg(res):
     "Prepare log message for a rerun to summarize an action about to happen"
-    msg = ''
+    msg = ""
     rerun_action = res.get("rerun_action")
     if rerun_action:
         msg += rerun_action
-    if res.get('commit'):
-        msg += " commit %s;" % res.get('commit')[:7]
+    if res.get("commit"):
+        msg += " commit %s;" % res.get("commit")[:7]
     rerun_run_message = res.get("run_message")
     if rerun_run_message:
         if len(rerun_run_message) > 20:
-            rerun_run_message = rerun_run_message[:17] + '...'
+            rerun_run_message = rerun_run_message[:17] + "..."
         msg += " (%s)" % rerun_run_message
     rerun_message = res.get("message")
     if rerun_message:
@@ -612,12 +715,15 @@ def _get_script_handler(script, since, revision):
 #   datalad rerun --script={script}{since} {revision}
 #
 # in {ds}{path}\n"""
-        ofh.write(header.format(
-            script=script,
-            since="" if since is None else " --since=" + since,
-            revision=ds_repo.get_hexsha(revision),
-            ds='dataset {} at '.format(dset.id) if dset.id else '',
-            path=dset.path))
+        ofh.write(
+            header.format(
+                script=script,
+                since="" if since is None else " --since=" + since,
+                revision=ds_repo.get_hexsha(revision),
+                ds="dataset {} at ".format(dset.id) if dset.id else "",
+                path=dset.path,
+            )
+        )
 
         for res in results:
             if res["status"] != "ok":
@@ -631,22 +737,24 @@ def _get_script_handler(script, since, revision):
             cmd = run_info["cmd"]
 
             expanded_cmd = format_command(
-                dset, cmd,
-                **dict(run_info,
-                       dspath=dset.path,
-                       pwd=op.join(dset.path, run_info["pwd"])))
+                dset,
+                cmd,
+                **dict(
+                    run_info, dspath=dset.path, pwd=op.join(dset.path, run_info["pwd"])
+                )
+            )
 
             msg = res["run_message"]
             if msg == _format_cmd_shorty(expanded_cmd):
-                msg = ''
+                msg = ""
 
-            ofh.write(
-                "\n" + "".join("# " + ln
-                               for ln in msg.splitlines(True)) +
-                "\n")
+            ofh.write("\n" + "".join("# " + ln for ln in msg.splitlines(True)) + "\n")
             commit_descr = ds_repo.describe(res["commit"])
-            ofh.write('# (record: {})\n'.format(
-                commit_descr if commit_descr else res["commit"]))
+            ofh.write(
+                "# (record: {})\n".format(
+                    commit_descr if commit_descr else res["commit"]
+                )
+            )
 
             ofh.write(expanded_cmd + "\n")
         if ofh is not sys.stdout:
@@ -656,14 +764,17 @@ def _get_script_handler(script, since, revision):
             yield None
         else:
             yield get_status_dict(
-                "run", ds=dset, status="ok",
+                "run",
+                ds=dset,
+                status="ok",
                 path=script,
-                message=("Script written to %s", script))
+                message=("Script written to %s", script),
+            )
 
     return fn
 
 
-def get_run_info(dset, message):
+def get_run_info(dset, message, runtype="SCHEDULE"):
     """Extract run information from `message`
 
     Parameters
@@ -680,9 +791,15 @@ def get_run_info(dset, message):
     ------
     A ValueError if the information in `message` is invalid.
     """
-    cmdrun_regex = r'\[DATALAD SCHEDULE\] (.*)=== Do not change lines below ' \
-                   r'===\n(.*)\n\^\^\^ Do not change lines above \^\^\^'
+    # TODO fix the cmd_regex
+    prefix = f"[DATALAD {runtype}] "
+    cmdrun_regex = prefix + (
+        r"(.*)=== Do not change lines below "
+        r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
+    )
     runinfo = re.match(cmdrun_regex, message, re.MULTILINE | re.DOTALL)
+    print(cmdrun_regex)
+    print(message)
     if not runinfo:
         return None, None
 
@@ -692,21 +809,23 @@ def get_run_info(dset, message):
         runinfo = json.loads(runinfo)
     except Exception as e:
         raise ValueError(
-            'cannot rerun command, command specification is not valid JSON'
+            "cannot rerun command, command specification is not valid JSON"
         ) from e
     if not isinstance(runinfo, (list, dict)):
         # this is a run record ID -> load the beast
         record_dir = dset.config.get(
-            'datalad.run.record-directory',
-            default=op.join('.datalad', 'runinfo'))
+            "datalad.run.record-directory", default=op.join(".datalad", "runinfo")
+        )
         record_path = op.join(dset.path, record_dir, runinfo)
         if not op.lexists(record_path):
-            raise ValueError("Run record sidecar file not found: {}".format(record_path))
+            raise ValueError(
+                "Run record sidecar file not found: {}".format(record_path)
+            )
         # TODO `get` the file
         recs = load_stream(record_path, compressed=True)
         # TODO check if there is a record
         runinfo = next(recs)
-    if 'cmd' not in runinfo:
+    if "cmd" not in runinfo:
         raise ValueError("Looks like a schedule commit but does not have a command")
     return rec_msg.rstrip(), runinfo
 
@@ -734,21 +853,26 @@ def diff_revision(dataset, revision="HEAD"):
     def changed(res):
         return res.get("action") == "diff" and res.get("state") != "clean"
 
-    diff = dataset.diff(recursive=True,
-                        fr=fr, to=revision,
-                        result_filter=changed,
-                        return_type='generator', result_renderer='disabled')
+    diff = dataset.diff(
+        recursive=True,
+        fr=fr,
+        to=revision,
+        result_filter=changed,
+        return_type="generator",
+        result_renderer="disabled",
+    )
     for r in diff:
         yield r
 
 
 def new_or_modified(diff_results):
-    """Filter diff result records to those for new or modified files.
-    """
+    """Filter diff result records to those for new or modified files."""
     for r in diff_results:
-        if r.get('type') in ('file', 'symlink') \
-                and r.get('state') in ['added', 'modified']:
-            r.pop('status', None)
+        if r.get("type") in ("file", "symlink") and r.get("state") in [
+            "added",
+            "modified",
+        ]:
+            r.pop("status", None)
             yield r
 
 
@@ -1039,11 +1163,11 @@ def new_or_modified(diff_results):
 def check_job_pattern(text):
     pattern = r"Submitted batch job \d+: Pending"
     match = re.search(pattern, text)
-    
+
     if not match:
         return text
-    
+
     if text == match.group(0):
         return None
-        
+
     return text.replace(match.group(0), "").strip()
