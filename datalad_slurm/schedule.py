@@ -627,6 +627,7 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         run_info['exit'] = cmd_exitcode
         slurm_outputs = get_slurm_output_files(slurm_job_id)
         run_info["outputs"].extend(slurm_outputs)
+        run_info["slurm_run_outputs"]=slurm_outputs
         
     # add the slurm job id to the run info
     run_info["slurm_job_id"] = slurm_job_id
@@ -650,15 +651,19 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
 
     # compose commit message
-    msg = u"""\
-[DATALAD SCHEDULE] {}
+    if rerun_info:
+        schedule_msg = "RESCHEDULE"
+    else:
+        schedule_msg = "SCHEDULE"
+    prefix = f"[DATALAD {schedule_msg}] "
+    msg = prefix + u"""\
+{}
 
 === Do not change lines below ===
 {}
 ^^^ Do not change lines above ^^^
 """
     # append pending to the message
-
     if message is not None:
         message += f"\n Submitted batch job {slurm_job_id}: Pending"
     else:
