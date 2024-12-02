@@ -267,7 +267,7 @@ class Reschedule(Interface):
         )
         ds_repo = ds.repo
 
-        lgr.debug("reschedulening command output underneath %s", ds)
+        lgr.debug("rescheduling command output underneath %s", ds)
 
         if script is None and not (report or explicit) and ds_repo.dirty:
             yield get_status_dict(
@@ -335,10 +335,15 @@ class Reschedule(Interface):
             revrange = "{}..{}".format(since, revision)
 
         # get the revrange to check for datalad finish corresponding command
-        revrange_full = "{}..{}".format(revision, rev_branch)
-        print(revrange_full)
-        job_finished = check_finish_exists(ds, revrange_full)
-        print("Job finished: ", job_finished)
+        job_finished = check_finish_exists(ds, revision, rev_branch)
+        if not job_finished:
+            yield get_status_dict(
+                "run",
+                ds=ds,
+                status="error",
+                message="No finish found for schedule command".format(branch),
+            )
+            return
         results = _rerun_as_results(ds, revrange, since, branch, onto, message)
         if script:
             handler = _get_script_handler(script, since, revision)
@@ -352,8 +357,16 @@ class Reschedule(Interface):
         for res in handler(ds, results):
             yield res
 
+def check_finish_exists(dset, revision, rev_branch):
+    # first get the original slurm job id
+    slurm_job_id = get_slurm_job_id(dset, revision)
+    
+    if not slurm_job_id:
+        return
 
-def check_finish_exists(dset, revrange):
+    # now check the finish exists
+    revrange = "{}..{}".format(revision, rev_branch)
+
     ds_repo = dset.repo
     rev_lines = ds_repo.get_revisions(
         revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
@@ -361,39 +374,43 @@ def check_finish_exists(dset, revrange):
     if not rev_lines:
         return
 
-    slurm_job_id = None
     for rev_line in rev_lines:
-        print(rev_line)
         # The strip() below is necessary because, with the format above, a
         # commit without any parent has a trailing space. (We could also use a
         # custom `rev-list --parents ...` call to avoid this.)
         fields = rev_line.strip().split(" ")
         rev, parents = fields[0], fields[1:]
-        if slurm_job_id is None:
-            rev = parents[0]
-            runtype = "SCHEDULE"
-        else:
-            runtype="FINISH"
         res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
         full_msg = ds_repo.format_commit("%B", rev)
         try:
-            msg, info = get_run_info(dset, full_msg, runtype=runtype)
+            msg, info = get_run_info(dset, full_msg, runtype="FINISH")
+            if info["slurm_job_id"] == slurm_job_id:
+                return True
         except ValueError as exc:
             # Recast the error so the message includes the revision.
             raise ValueError("Error on {}'s message".format(rev)) from exc
-        print(msg)
 
-        # get the original slurm job id
-        if slurm_job_id is None:
-            slurm_job_id = info["slurm_job_id"]
-        if "DATALAD FINISH" not in msg:
-            pass
+    return
 
-        # confirms that a finish command matches the slurm job id
-        if info["slurm_job_id"] == slurm_job_id:
-            return True
+def get_slurm_job_id(dset, revision):
+    revrange = "{rev}^..{rev}".format(rev=revision)
+    ds_repo = dset.repo
+    rev_line = ds_repo.get_revisions(
+        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
+    )[0]
+    if not rev_line:
+        return
+    fields = rev_line.strip().split(" ")
+    rev, parents = fields[0], fields[1:]
+    res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
+    full_msg = ds_repo.format_commit("%B", rev)
+    try:
+        msg, info = get_run_info(dset, full_msg, runtype="SCHEDULE")
+    except ValueError as exc:
+        # Recast the error so the message includes the revision.
+        raise ValueError("Error on {}'s message".format(rev)) from exc
 
-    return False
+    return info["slurm_job_id"]
 
 
 def _revrange_as_results(dset, revrange):
@@ -792,14 +809,12 @@ def get_run_info(dset, message, runtype="SCHEDULE"):
     A ValueError if the information in `message` is invalid.
     """
     # TODO fix the cmd_regex
-    prefix = f"[DATALAD {runtype}] "
+    prefix = f"\[DATALAD {runtype}\] "
     cmdrun_regex = prefix + (
         r"(.*)=== Do not change lines below "
         r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
     )
     runinfo = re.match(cmdrun_regex, message, re.MULTILINE | re.DOTALL)
-    print(cmdrun_regex)
-    print(message)
     if not runinfo:
         return None, None
 
