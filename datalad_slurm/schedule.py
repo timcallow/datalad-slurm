@@ -306,7 +306,7 @@ class Schedule(Interface):
                         Path(msg_path).relative_to(ds_path))
             generic_result_renderer(res)
 
-def _execute_slurm_command(command, pwd, save_tracking_file=True):
+def _execute_slurm_command(command, pwd):
     """Execute a Slurm submission command and create a job tracking file.
     
     Parameters
@@ -342,19 +342,24 @@ def _execute_slurm_command(command, pwd, save_tracking_file=True):
         # Typical output: "Submitted batch job 123456"
         stdout = result.stdout
         match = re.search(r"Submitted batch job (\d+)", stdout)
-        
-        if match and save_tracking_file:
+
+        # if match and save_tracking_file:
+        #     job_id = match.group(1)
+        #     # Create job tracking file
+        #     tracking_file = os.path.join(pwd, f"slurm-job-submission-{job_id}")
+        #     try:
+        #         with open(tracking_file, 'w') as f:
+        #             # Could add additional metadata here if needed
+        #             pass
+        #         lgr.info(f"Created tracking file: {tracking_file}")
+        #     except IOError as e:
+        #         lgr.warning(f"Failed to create tracking file: {e}")
+        #         # Don't fail the command just because tracking file creation failed
+        # else:
+        #     lgr.warning("Could not extract job ID from Slurm output")
+
+        if match:
             job_id = match.group(1)
-            # Create job tracking file
-            tracking_file = os.path.join(pwd, f"slurm-job-submission-{job_id}")
-            try:
-                with open(tracking_file, 'w') as f:
-                    # Could add additional metadata here if needed
-                    pass
-                lgr.info(f"Created tracking file: {tracking_file}")
-            except IOError as e:
-                lgr.warning(f"Failed to create tracking file: {e}")
-                # Don't fail the command just because tracking file creation failed
         else:
             lgr.warning("Could not extract job ID from Slurm output")
             
@@ -625,9 +630,11 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info['exit'] = cmd_exitcode
-        slurm_outputs = get_slurm_output_files(slurm_job_id)
+        slurm_outputs, slurm_env_file = get_slurm_output_files(slurm_job_id)
         run_info["outputs"].extend(slurm_outputs)
+        run_info["outputs"].append(slurm_env_file)
         run_info["slurm_run_outputs"]=slurm_outputs
+        run_info["slurm_run_outputs"].append(slurm_env_file)
         
     # add the slurm job id to the run info
     run_info["slurm_job_id"] = slurm_job_id
@@ -674,7 +681,8 @@ def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
         '"{}"'.format(record) if record_path else record)
     
     #outputs_to_save = globbed['slurm_job_file'].expand_strict()
-    outputs_to_save = [f"slurm-job-submission-{slurm_job_id}"]
+    #outputs_to_save = [f"slurm-job-submission-{slurm_job_id}"]
+    outputs_to_save = [slurm_env_file]
     do_save = outputs_to_save is None or outputs_to_save
     msg_path = None
     if not rerun_info and cmd_exitcode:
@@ -769,15 +777,16 @@ def get_slurm_output_files(job_id):
         )
     
     # Parse output to find StdOut and StdErr
-    output_lines = result.stdout.split('\n')
-    stdout_path = None
-    stderr_path = None
-    
-    for line in output_lines:
-        if 'StdOut=' in line:
-            stdout_path = line.split('StdOut=')[1].split()[0]
-        if 'StdErr=' in line:
-            stderr_path = line.split('StdErr=')[1].split()[0]
+    parsed_data = parse_slurm_output(result.stdout)
+    stdout_path = parsed_data.get('StdOut')
+    stderr_path = parsed_data.get('StdErr')
+
+    if not stdout_path or not stderr_path:
+        raise ValueError("Could not find StdOut or StdErr paths in scontrol output")
+
+    cwd = Path.cwd()
+    stdout_path = Path(stdout_path)
+    stderr_path = Path(stderr_path)    
     
     if not stdout_path or not stderr_path:
         raise ValueError("Could not find StdOut or StdErr paths in scontrol output")
@@ -788,16 +797,39 @@ def get_slurm_output_files(job_id):
     # Convert output paths to Path objects
     stdout_path = Path(stdout_path)
     stderr_path = Path(stderr_path)
+
+    # Write parsed data to JSON file
+    slurm_env_file = stdout_path.parent / f"slurm-job-{job_id}.env.json"
+    with open(slurm_env_file, 'w') as f:
+        json.dump(parsed_data, f, indent=2)
     
     # Get relative paths
     try:
         rel_stdout = os.path.relpath(stdout_path, cwd)
         rel_stderr = os.path.relpath(stderr_path, cwd)
+        rel_slurmenv = os.path.relpath(slurm_env_file, cwd)
     except ValueError as e:
         raise ValueError(f"Cannot compute relative path: {e}")
     
     # If paths are the same, return just one
     if rel_stdout == rel_stderr:
-        return [rel_stdout]
+        return [rel_stdout], rel_slurmenv
     else:
-        return [rel_stdout, rel_stderr]
+        return [rel_stdout, rel_stderr], rel_slurmenv
+
+
+def parse_slurm_output(output):
+    """Parse SLURM output into a dictionary, handling space-separated assignments"""
+    result = {}
+    # TODO Is this necessary for privacy purposes?
+    # What is useful to oneself vs for the community when pushing to git
+    excluded_keys = {'UserId', 'JobId'}
+    for line in output.split('\n'):
+        # Split line into space-separated parts
+        parts = line.strip().split()
+        for part in parts:
+            if '=' in part:
+                key, value = part.split('=', 1)
+                if key not in excluded_keys:
+                    result[key] = value
+    return result

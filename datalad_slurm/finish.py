@@ -239,15 +239,15 @@ class Finish(Interface):
             return
 
         # delete the slurm_job_id file
-        slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
-        os.remove(slurm_submission_file)
+        # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
+        # os.remove(slurm_submission_file)
 
         # expand the wildcards
         # TODO do this in a better way with GlobbedPaths
         globbed_outputs = []
         for k in outputs_to_save:
             globbed_outputs.extend(glob.glob(k))
-        globbed_outputs.append(slurm_submission_file)
+        #globbed_outputs.append(slurm_submission_file)
 
 
         # TODO: this is not saving model files (outputs from first job) for some reason
