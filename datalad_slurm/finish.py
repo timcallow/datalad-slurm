@@ -64,12 +64,10 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-from datalad.core.local.run import (
-    _create_record,
-    get_command_pwds
-)
+from datalad.core.local.run import _create_record, get_command_pwds
 
 lgr = logging.getLogger("datalad.slurm.finish")
+
 
 class Finish(Interface):
     """Finishes (i.e. saves outputs) a slurm submitted job."""
@@ -81,6 +79,17 @@ class Finish(Interface):
             nargs="?",
             doc=""" `commit`. Finishes the slurm job from the specified commit.""",
             default=None,
+            constraints=EnsureStr() | EnsureNone(),
+        ),
+        since=Parameter(
+            args=("--since",),
+            doc="""If `since` is a commit-ish, the commands from all commits
+            that are reachable from `revision` but not `since` will be
+            re-executed (in other words, the commands in :command:`git log
+            SINCE..REVISION`). If SINCE is an empty string, it is set to the
+            parent of the first commit that contains a recorded command (i.e.,
+            all commands in :command:`git log REVISION` will be
+            re-executed).""",
             constraints=EnsureStr() | EnsureNone(),
         ),
         branch=Parameter(
@@ -126,13 +135,14 @@ class Finish(Interface):
             args=("-o", "--output"),
             dest="outputs",
             metavar=("PATH"),
-            action='append',
+            action="append",
             doc="""Prepare this relative path to be an output file of the command. A
             value of "." means "run :command:`datalad unlock .`" (and will fail
             if some content isn't present). For any other value, if the content
             of this file is present, unlock the file. Otherwise, remove it. The
             value can also be a glob. [CMD: This option can be given more than
-            once. CMD]"""),
+            once. CMD]""",
+        ),
         explicit=Parameter(
             args=("--explicit",),
             action="store_true",
@@ -142,7 +152,8 @@ class Finish(Interface):
             Note that when several run commits are specified, this applies to
             every one. Care should also be taken when using [CMD: --onto
             CMD][PY: `onto` PY] because checking out a new HEAD can easily fail
-            when the working tree has modifications."""),
+            when the working tree has modifications.""",
+        ),
         jobs=jobs_opt,
     )
 
@@ -160,148 +171,177 @@ class Finish(Interface):
         branch=None,
         jobs=None,
     ):
-        ds = require_dataset(
-            dataset, check_installed=True, purpose="finish a SLURM job"
+        for r in finish_cmd(
+            commit,
+            dataset=dataset,
+            message=message,
+            outputs=outputs,
+            onto=None,
+            explicit=explicit,
+            branch=None,
+            jobs=None,
+        ):
+            yield r
+
+
+def finish_cmd(
+    commit,
+    dataset=None,
+    message=None,
+    outputs=None,
+    onto=None,
+    explicit=True,
+    branch=None,
+    jobs=None,
+):
+
+    ds = require_dataset(dataset, check_installed=True, purpose="finish a SLURM job")
+    ds_repo = ds.repo
+
+    lgr.debug("rerunning command output underneath %s", ds)
+
+    if not explicit:
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="impossible",
+            message=(
+                "clean dataset required to detect changes from command; "
+                "use `datalad status` to inspect unsaved changes"
+            ),
         )
-        ds_repo = ds.repo
+        return
 
-        lgr.debug("rerunning command output underneath %s", ds)
-        
-        if not explicit:
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "clean dataset required to detect changes from command; "
-                    "use `datalad status` to inspect unsaved changes"
-                ),
-            )
-            return
+    if not ds_repo.get_hexsha():
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="impossible",
+            message="cannot rerun command, nothing recorded",
+        )
+        return
 
-        if not ds_repo.get_hexsha():
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message="cannot rerun command, nothing recorded",
-            )
-            return
+    # ATTN: Use get_corresponding_branch() rather than is_managed_branch()
+    # for compatibility with a plain GitRepo.
+    if (onto is not None or branch is not None) and ds_repo.get_corresponding_branch():
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="impossible",
+            message=(
+                "--%s is incompatible with adjusted branch",
+                "branch" if onto is None else "onto",
+            ),
+        )
+        return
 
-        # ATTN: Use get_corresponding_branch() rather than is_managed_branch()
-        # for compatibility with a plain GitRepo.
-        if (onto is not None or branch is not None) and \
-           ds_repo.get_corresponding_branch():
-            yield get_status_dict(
-                "run", ds=ds, status="impossible",
-                message=("--%s is incompatible with adjusted branch",
-                         "branch" if onto is None else "onto"))
-            return
+    if branch and branch in ds_repo.get_branches():
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="error",
+            message="branch '{}' already exists".format(branch),
+        )
+        return
 
-        if branch and branch in ds_repo.get_branches():
-            yield get_status_dict(
-                "run", ds=ds, status="error",
-                message="branch '{}' already exists".format(branch))
-            return
+    if commit is None:
+        commit = (
+            ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+        )
 
-        if commit is None:
-            commit = ds_repo.get_corresponding_branch() or \
-                ds_repo.get_active_branch() or "HEAD"
-            
-        # for now, we just assume this to be run on a single commit
-        revrange = "{rev}^..{rev}".format(rev=commit)
+    # for now, we just assume this to be run on a single commit
+    revrange = "{rev}^..{rev}".format(rev=commit)
 
-        try:
-            results = _revrange_as_results(ds, revrange)
-        except ValueError as exc:
-            ce = CapturedException(exc)
-            yield get_status_dict("run", status="error", message=str(ce),
-                                  exception=ce)
-            return
-        
-        run_message = results["run_message"]
-        run_info = results["run_info"]
-        # concatenate outputs from both submission and completion
-        outputs_to_save = ensure_list(outputs) + ensure_list(results["run_info"]["outputs"])
+    try:
+        results = _revrange_as_results(ds, revrange)
+    except ValueError as exc:
+        ce = CapturedException(exc)
+        yield get_status_dict("run", status="error", message=str(ce), exception=ce)
+        return
 
-        # should throw an error if user doesn't specify outputs or directory
-        if not outputs_to_save:
-            err_msg = "You must specify which outputs to save from this slurm run."
-            yield get_status_dict("run", status="error", message=err_msg)
-            return
+    run_message = results["run_message"]
+    run_info = results["run_info"]
+    # concatenate outputs from both submission and completion
+    outputs_to_save = ensure_list(outputs) + ensure_list(results["run_info"]["outputs"])
 
-        slurm_job_id = results["run_info"]["slurm_job_id"]
+    # should throw an error if user doesn't specify outputs or directory
+    if not outputs_to_save:
+        err_msg = "You must specify which outputs to save from this slurm run."
+        yield get_status_dict("run", status="error", message=err_msg)
+        return
 
-        job_status = get_job_status(slurm_job_id)
-        if job_status != "COMPLETED":
-            message = f"Slurm job is not complete. Status is {job_status}."
-            yield get_status_dict("run", status="error", message=message)
-            return
+    slurm_job_id = results["run_info"]["slurm_job_id"]
 
-        # delete the slurm_job_id file
-        # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
-        # os.remove(slurm_submission_file)
+    job_status = get_job_status(slurm_job_id)
+    if job_status != "COMPLETED":
+        message = f"Slurm job is not complete. Status is {job_status}."
+        yield get_status_dict("run", status="error", message=message)
+        return
 
-        # expand the wildcards
-        # TODO do this in a better way with GlobbedPaths
-        globbed_outputs = []
-        for k in outputs_to_save:
-            globbed_outputs.extend(glob.glob(k))
-        #globbed_outputs.append(slurm_submission_file)
+    # delete the slurm_job_id file
+    # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
+    # os.remove(slurm_submission_file)
 
+    # expand the wildcards
+    # TODO do this in a better way with GlobbedPaths
+    globbed_outputs = []
+    for k in outputs_to_save:
+        globbed_outputs.extend(glob.glob(k))
+    # globbed_outputs.append(slurm_submission_file)
 
-        # TODO: this is not saving model files (outputs from first job) for some reason
-        #rel_pwd = rerun_info.get('pwd') if rerun_info else None
-        rel_pwd = None # TODO might be able to get this from rerun info
-        if rel_pwd and dataset:
-            # recording is relative to the dataset
-            pwd = op.normpath(op.join(dataset.path, rel_pwd))
-            rel_pwd = op.relpath(pwd, dataset.path)
-        else:
-            pwd, rel_pwd = get_command_pwds(dataset)
+    # TODO: this is not saving model files (outputs from first job) for some reason
+    # rel_pwd = rerun_info.get('pwd') if rerun_info else None
+    rel_pwd = None  # TODO might be able to get this from rerun info
+    if rel_pwd and dataset:
+        # recording is relative to the dataset
+        pwd = op.normpath(op.join(dataset.path, rel_pwd))
+        rel_pwd = op.relpath(pwd, dataset.path)
+    else:
+        pwd, rel_pwd = get_command_pwds(dataset)
 
-    
-        do_save = True
-        msg = u"""\
+    do_save = True
+    msg = """\
 [DATALAD FINISH] {}
 
 === Do not change lines below ===
 {}
 ^^^ Do not change lines above ^^^
         """
-        message = f"Processed batch job {slurm_job_id}: Complete"
+    message = f"Processed batch job {slurm_job_id}: Complete"
 
-        # create the run record, either as a string, or written to a file
-        # depending on the config/request
-        # TODO sidecar param
-        record, record_path = _create_record(run_info, False, ds)
+    # create the run record, either as a string, or written to a file
+    # depending on the config/request
+    # TODO sidecar param
+    record, record_path = _create_record(run_info, False, ds)
 
-        msg = msg.format(
-            message if message is not None else cmd_shorty,
-            '"{}"'.format(record) if record_path else record)
+    msg = msg.format(
+        message if message is not None else cmd_shorty,
+        '"{}"'.format(record) if record_path else record,
+    )
 
-        if do_save:
-            with chpwd(pwd):
-                for r in Save.__call__(
-                        dataset=ds,
-                        path=globbed_outputs,
-                        recursive=True,
-                        message=msg,
-                        jobs=jobs,
-                        return_type='generator',
-                        # we want this command and its parameterization to be in full
-                        # control about the rendering of results, hence we must turn
-                        # off internal rendering
-                        result_renderer='disabled',
-                        on_failure='ignore'):
-                    yield r
-
+    if do_save:
+        with chpwd(pwd):
+            for r in Save.__call__(
+                dataset=ds,
+                path=globbed_outputs,
+                recursive=True,
+                message=msg,
+                jobs=jobs,
+                return_type="generator",
+                # we want this command and its parameterization to be in full
+                # control about the rendering of results, hence we must turn
+                # off internal rendering
+                result_renderer="disabled",
+                on_failure="ignore",
+            ):
+                yield r
 
 
 def _revrange_as_results(dset, revrange):
     ds_repo = dset.repo
     rev_line = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"])[0]
+        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
+    )[0]
     if not rev_line:
         return
 
@@ -316,8 +356,7 @@ def _revrange_as_results(dset, revrange):
         msg, info = get_run_info(dset, full_msg)
     except ValueError as exc:
         # Recast the error so the message includes the revision.
-        raise ValueError(
-            "Error on {}'s message".format(rev)) from exc
+        raise ValueError("Error on {}'s message".format(rev)) from exc
     res["run_info"] = info
     res["run_message"] = msg
 
@@ -331,7 +370,7 @@ def _revrange_as_results(dset, revrange):
     #         continue
     #     res["run_info"] = info
     #     res["run_message"] = msg
-    return dict(res, status="ok")        
+    return dict(res, status="ok")
 
 
 def get_run_info(dset, message):
@@ -351,33 +390,37 @@ def get_run_info(dset, message):
     ------
     A ValueError if the information in `message` is invalid.
     """
-    cmdrun_regex = r'\[DATALAD (?:SCHEDULE|RESCHEDULE)\] (.*)=== Do not change lines below ' \
-                   r'===\n(.*)\n\^\^\^ Do not change lines above \^\^\^'
+    cmdrun_regex = (
+        r"\[DATALAD (?:SCHEDULE|RESCHEDULE)\] (.*)=== Do not change lines below "
+        r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
+    )
     runinfo = re.match(cmdrun_regex, message, re.MULTILINE | re.DOTALL)
     if not runinfo:
         return None, None
-        
+
     rec_msg, runinfo = runinfo.groups()
 
     try:
         runinfo = json.loads(runinfo)
     except Exception as e:
         raise ValueError(
-            'cannot rerun command, command specification is not valid JSON'
+            "cannot rerun command, command specification is not valid JSON"
         ) from e
     if not isinstance(runinfo, (list, dict)):
         # this is a run record ID -> load the beast
         record_dir = dset.config.get(
-            'datalad.run.record-directory',
-            default=op.join('.datalad', 'runinfo'))
+            "datalad.run.record-directory", default=op.join(".datalad", "runinfo")
+        )
         record_path = op.join(dset.path, record_dir, runinfo)
         if not op.lexists(record_path):
-            raise ValueError("Run record sidecar file not found: {}".format(record_path))
+            raise ValueError(
+                "Run record sidecar file not found: {}".format(record_path)
+            )
         # TODO `get` the file
         recs = load_stream(record_path, compressed=True)
         # TODO check if there is a record
         runinfo = next(recs)
-    if 'cmd' not in runinfo:
+    if "cmd" not in runinfo:
         raise ValueError("Looks like a run commit but does not have a command")
     return rec_msg.rstrip(), runinfo
 
@@ -385,25 +428,27 @@ def get_run_info(dset, message):
 def get_job_status(job_id):
     """
     Check the status of a Slurm job using sacct command.
-    
+
     Args:
         job_id (Union[str, int]): The Slurm job ID to check
-        
+
     Returns:
         str: "COMPLETED" if the job completed successfully,
              otherwise returns the actual job state (e.g., "RUNNING", "FAILED", "PENDING")
-        
+
     Raises:
         subprocess.CalledProcessError: If the sacct command fails
         ValueError: If the job_id is invalid or job not found
     """
     # Convert job_id to string if it's an integer
     job_id = str(job_id)
-    
+
     # Validate job_id format (should be a positive integer)
     if not job_id.isdigit():
-        raise ValueError(f"Invalid job ID: {job_id}. Job ID must be a positive integer.")
-    
+        raise ValueError(
+            f"Invalid job ID: {job_id}. Job ID must be a positive integer."
+        )
+
     try:
         # Run sacct command to get job status
         # -n: no header
@@ -412,10 +457,10 @@ def get_job_status(job_id):
         # -o State: only output the state
         # --parsable2: machine-friendly output format
         result = subprocess.run(
-            ['sacct', '-n', '-X', '-j', job_id, '-o', 'State', '--parsable2'],
+            ["sacct", "-n", "-X", "-j", job_id, "-o", "State", "--parsable2"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
 
         # Get the state from the output
@@ -424,9 +469,9 @@ def get_job_status(job_id):
         # If there's no output, the job doesn't exist
         if not state:
             raise ValueError(f"Job {job_id} not found")
-            
+
         # Return the state as is
         return state
-        
+
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
