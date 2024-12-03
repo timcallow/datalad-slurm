@@ -64,6 +64,9 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
+from .reschedule import check_finish_exists
+from .reschedule import get_run_info as get_run_info_res
+
 from datalad.core.local.run import _create_record, get_command_pwds
 
 lgr = logging.getLogger("datalad.slurm.finish")
@@ -163,6 +166,7 @@ class Finish(Interface):
     def __call__(
         commit=None,
         *,
+        since=None,
         dataset=None,
         message=None,
         outputs=None,
@@ -171,21 +175,75 @@ class Finish(Interface):
         branch=None,
         jobs=None,
     ):
-        for r in finish_cmd(
-            commit,
-            dataset=dataset,
-            message=message,
-            outputs=outputs,
-            onto=None,
-            explicit=explicit,
-            branch=None,
-            jobs=None,
-        ):
-            yield r
+        ds = require_dataset(dataset, check_installed=True, purpose="finish a SLURM job")
+        ds_repo = ds.repo
+        if since is None:
+            if commit is None:
+                commit = (
+                    ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+                )
+            commit_list = [commit]
+        else:
+            commit_list = get_scheduled_commits(since, ds, branch)
+        for commit_element in commit_list:
+            for r in finish_cmd(
+                commit_element,
+                since=since,
+                dataset=dataset,
+                message=message,
+                outputs=outputs,
+                onto=None,
+                explicit=explicit,
+                branch=None,
+                jobs=None,
+            ):
+                yield r
 
+def get_scheduled_commits(since, dset, branch):
+    ds_repo = dset.repo
+    # get branch
+    rev_branch = (
+        ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+    )
+    revision = rev_branch    
+    if since.strip() == "":
+        revrange = revision
+    else:
+        revrange = "{}..{}".format(since, revision)
+
+    rev_lines = ds_repo.get_revisions(
+        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
+    )
+    if not rev_lines:
+        return
+        
+    commit_list = []
+    for rev_line in rev_lines:
+        # The strip() below is necessary because, with the format above, a
+        # commit without any parent has a trailing space. (We could also use a
+        # custom `rev-list --parents ...` call to avoid this.)
+        fields = rev_line.strip().split(" ")
+        rev, parents = fields[0], fields[1:]
+        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
+        full_msg = ds_repo.format_commit("%B", rev)
+        try:
+            msg, info = get_run_info_res(dset, full_msg, runtype="SCHEDULE")
+            if msg and info:
+                # then we have a hit on the schedule
+                # check if a corresponding finish command exists
+                job_finished = check_finish_exists(dset, rev, rev_branch)
+                if not job_finished:
+                    commit_list.append(rev)
+        except ValueError as exc:
+            # Recast the error so the message includes the revision.
+            raise ValueError("Error on {}'s message".format(rev)) from exc
+
+    return commit_list
+        
 
 def finish_cmd(
     commit,
+    since=None,
     dataset=None,
     message=None,
     outputs=None,

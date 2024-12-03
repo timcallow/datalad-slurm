@@ -384,8 +384,9 @@ def check_finish_exists(dset, revision, rev_branch):
         full_msg = ds_repo.format_commit("%B", rev)
         try:
             msg, info = get_run_info(dset, full_msg, runtype="FINISH")
-            if info["slurm_job_id"] == slurm_job_id:
-                return True
+            if msg and info:
+                if info["slurm_job_id"] == slurm_job_id:
+                    return True
         except ValueError as exc:
             # Recast the error so the message includes the revision.
             raise ValueError("Error on {}'s message".format(rev)) from exc
