@@ -75,6 +75,8 @@ from datalad.support.globbedpaths import GlobbedPaths
 # from .schedule import _execute_slurm_command
 from .schedule import run_command
 
+from .common import get_finish_info, check_finish_exists
+
 lgr = logging.getLogger("datalad.local.reschedule")
 
 reschedule_assume_ready_opt = copy(assume_ready_opt)
@@ -335,7 +337,8 @@ class Reschedule(Interface):
             revrange = "{}..{}".format(since, revision)
 
         # get the revrange to check for datalad finish corresponding command
-        job_finished = check_finish_exists(ds, revision, rev_branch)
+        # don't allow reschedule because we only check for the original job
+        job_finished = check_finish_exists(ds, revision, rev_branch, allow_reschedule=False)
         if not job_finished:
             yield get_status_dict(
                 "run",
@@ -357,61 +360,8 @@ class Reschedule(Interface):
         for res in handler(ds, results):
             yield res
 
-def check_finish_exists(dset, revision, rev_branch):
-    # first get the original slurm job id
-    slurm_job_id = get_slurm_job_id(dset, revision)
-    
-    if not slurm_job_id:
-        return
 
-    # now check the finish exists
-    revrange = "{}..{}".format(revision, rev_branch)
 
-    ds_repo = dset.repo
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
-    )
-    if not rev_lines:
-        return
-
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
-        full_msg = ds_repo.format_commit("%B", rev)
-        try:
-            msg, info = get_run_info(dset, full_msg, runtype="FINISH")
-            if msg and info:
-                if info["slurm_job_id"] == slurm_job_id:
-                    return True
-        except ValueError as exc:
-            # Recast the error so the message includes the revision.
-            raise ValueError("Error on {}'s message".format(rev)) from exc
-
-    return
-
-def get_slurm_job_id(dset, revision):
-    revrange = "{rev}^..{rev}".format(rev=revision)
-    ds_repo = dset.repo
-    rev_line = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
-    )[0]
-    if not rev_line:
-        return
-    fields = rev_line.strip().split(" ")
-    rev, parents = fields[0], fields[1:]
-    res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
-    full_msg = ds_repo.format_commit("%B", rev)
-    try:
-        msg, info = get_run_info(dset, full_msg, runtype="SCHEDULE")
-    except ValueError as exc:
-        # Recast the error so the message includes the revision.
-        raise ValueError("Error on {}'s message".format(rev)) from exc
-
-    return info["slurm_job_id"]
 
 
 def _revrange_as_results(dset, revrange):
