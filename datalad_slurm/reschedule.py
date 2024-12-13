@@ -204,17 +204,6 @@ class Reschedule(Interface):
             to set --output-format to 'json' or 'json_pp'. CMD]""",
         ),
         assume_ready=reschedule_assume_ready_opt,
-        explicit=Parameter(
-            args=("--explicit",),
-            action="store_true",
-            doc="""Consider the specification of inputs and outputs in the run
-            record to be explicit. Don't warn if the repository is dirty, and
-            only save modifications to the outputs from the original record.
-            Note that when several run commits are specified, this applies to
-            every one. Care should also be taken when using [CMD: --onto
-            CMD][PY: `onto` PY] because checking out a new HEAD can easily fail
-            when the working tree has modifications.""",
-        ),
         jobs=jobs_opt,
     )
 
@@ -260,7 +249,6 @@ class Reschedule(Interface):
         script=None,
         report=False,
         assume_ready=None,
-        explicit=False,
         jobs=None
     ):
 
@@ -270,18 +258,6 @@ class Reschedule(Interface):
         ds_repo = ds.repo
 
         lgr.debug("rescheduling command output underneath %s", ds)
-
-        if script is None and not (report or explicit) and ds_repo.dirty:
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "clean dataset required to detect changes from command; "
-                    "use `datalad status` to inspect unsaved changes"
-                ),
-            )
-            return
 
         if not ds_repo.get_hexsha():
             yield get_status_dict(
@@ -354,7 +330,7 @@ class Reschedule(Interface):
             handler = _report
         else:
             handler = partial(
-                _rerun, assume_ready=assume_ready, explicit=explicit, jobs=jobs
+                _rerun, assume_ready=assume_ready, explicit=True, jobs=jobs
             )
 
         for res in handler(ds, results):
@@ -484,7 +460,7 @@ def _mark_nonrun_result(result, which):
     return result
 
 
-def _rerun(dset, results, assume_ready=None, explicit=False, jobs=None):
+def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
     ds_repo = dset.repo
     # Keep a map from an original hexsha to a new hexsha created by the rerun
     # (i.e. a reran, cherry-picked, or merged commit).

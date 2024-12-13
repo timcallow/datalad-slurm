@@ -213,12 +213,6 @@ class Schedule(Interface):
             commit message.""",
             constraints=EnsureChoice(None, "inputs", "outputs", "both")),
         assume_ready=assume_ready_opt,
-        explicit=Parameter(
-            args=("--explicit",),
-            action="store_true",
-            doc="""Consider the specification of inputs and outputs to be
-            explicit. Don't warn if the repository is dirty, and only save
-            modifications to the listed outputs."""),
         message=save_message_opt,
         sidecar=Parameter(
             args=('--sidecar',),
@@ -262,7 +256,6 @@ class Schedule(Interface):
             outputs=None,
             expand=None,
             assume_ready=None,
-            explicit=False,
             message=None,
             dry_run=None,
             jobs=None):
@@ -270,7 +263,6 @@ class Schedule(Interface):
                              inputs=inputs, outputs=outputs,
                              expand=expand,
                              assume_ready=assume_ready,
-                             explicit=explicit,
                              message=message,
                              dry_run=dry_run,
                              jobs=jobs):
@@ -408,8 +400,9 @@ def _create_record(run_info, sidecar_flag, ds):
 
 
 def run_command(cmd, dataset=None, inputs=None, outputs=None, expand=None,
-                assume_ready=None, explicit=False, message=None, sidecar=None,
+                assume_ready=None, message=None, sidecar=None,
                 dry_run=False, jobs=None,
+                explicit=True,
                 extra_info=None,
                 rerun_info=None,
                 extra_inputs=None,
