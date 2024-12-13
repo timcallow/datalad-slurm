@@ -177,11 +177,10 @@ class Finish(Interface):
         ds = require_dataset(dataset, check_installed=True, purpose="finish a SLURM job")
         ds_repo = ds.repo
         if since is None:
-            if commit is None:
-                commit = (
-                    ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-                )
-            commit_list = [commit]
+            if commit:
+                commit_list = [commit]
+            else:
+                commit_list = get_scheduled_commits("", ds, branch)
         else:
             commit_list = get_scheduled_commits(since, ds, branch)
         for commit_element in commit_list:
