@@ -311,11 +311,9 @@ def finish_cmd(
     # for now, we just assume this to be run on a single commit
     revrange = "{rev}^..{rev}".format(rev=commit)
 
-    try:
-        results = _revrange_as_results(ds, revrange)
-    except ValueError as exc:
-        ce = CapturedException(exc)
-        yield get_status_dict("run", status="error", message=str(ce), exception=ce)
+    results = _revrange_as_results(ds, revrange)
+    if not results:
+        yield get_status_dict("finish", status="error", message="Error in commit message")
         return
 
     run_message = results["run_message"]
@@ -411,19 +409,9 @@ def _revrange_as_results(dset, revrange):
     rev, parents = fields[0], fields[1:]
     res = get_status_dict("finish", ds=dset, commit=rev, parents=parents)
     full_msg = ds_repo.format_commit("%B", rev)
-    try:
-        msg, info = get_schedule_info(dset, full_msg)
-        if msg is None or info is None:
-            yield get_status_dict(
-                "finish",
-                ds=dset,
-                status="error",
-                commit=rev,
-                message="Scheduled job cannot be processed as commit message has the wrong format",
-            )
-    except ValueError as exc:
-        # Recast the error so the message includes the revision.
-        raise ValueError("Error on {}'s message".format(rev)) from exc
+    msg, info = get_schedule_info(dset, full_msg)
+    if msg is None or info is None:
+        return
     res["run_info"] = info
     res["run_message"] = msg
 
