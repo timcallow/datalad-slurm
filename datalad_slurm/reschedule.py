@@ -75,7 +75,7 @@ from datalad.support.globbedpaths import GlobbedPaths
 # from .schedule import _execute_slurm_command
 from .schedule import run_command
 
-from .common import get_finish_info, check_finish_exists
+from .common import get_finish_info, check_finish_exists, get_schedule_info
 
 lgr = logging.getLogger("datalad.local.reschedule")
 
@@ -336,10 +336,6 @@ class Reschedule(Interface):
         for res in handler(ds, results):
             yield res
 
-
-
-
-
 def _revrange_as_results(dset, revrange):
     ds_repo = dset.repo
     rev_lines = ds_repo.get_revisions(
@@ -357,7 +353,7 @@ def _revrange_as_results(dset, revrange):
         res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
         full_msg = ds_repo.format_commit("%B", rev)
         try:
-            msg, info = get_run_info(dset, full_msg)
+            msg, info = get_schedule_info(dset, full_msg, allow_reschedule=False)
         except ValueError as exc:
             # Recast the error so the message includes the revision.
             raise ValueError("Error on {}'s message".format(rev)) from exc
@@ -722,59 +718,6 @@ def _get_script_handler(script, since, revision):
 
     return fn
 
-
-def get_run_info(dset, message, runtype="SCHEDULE"):
-    """Extract run information from `message`
-
-    Parameters
-    ----------
-    message : str
-        A commit message.
-
-    Returns
-    -------
-    A tuple with the command's message and a dict with run information. Both
-    these values are None if `message` doesn't have a run command.
-
-    Raises
-    ------
-    A ValueError if the information in `message` is invalid.
-    """
-    # TODO fix the cmd_regex
-    prefix = f"\[DATALAD {runtype}\] "
-    cmdrun_regex = prefix + (
-        r"(.*)=== Do not change lines below "
-        r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
-    )
-    runinfo = re.match(cmdrun_regex, message, re.MULTILINE | re.DOTALL)
-    if not runinfo:
-        return None, None
-
-    rec_msg, runinfo = runinfo.groups()
-
-    try:
-        runinfo = json.loads(runinfo)
-    except Exception as e:
-        raise ValueError(
-            "cannot rerun command, command specification is not valid JSON"
-        ) from e
-    if not isinstance(runinfo, (list, dict)):
-        # this is a run record ID -> load the beast
-        record_dir = dset.config.get(
-            "datalad.run.record-directory", default=op.join(".datalad", "runinfo")
-        )
-        record_path = op.join(dset.path, record_dir, runinfo)
-        if not op.lexists(record_path):
-            raise ValueError(
-                "Run record sidecar file not found: {}".format(record_path)
-            )
-        # TODO `get` the file
-        recs = load_stream(record_path, compressed=True)
-        # TODO check if there is a record
-        runinfo = next(recs)
-    if "cmd" not in runinfo:
-        raise ValueError("Looks like a schedule commit but does not have a command")
-    return rec_msg.rstrip(), runinfo
 
 
 def diff_revision(dataset, revision="HEAD"):
