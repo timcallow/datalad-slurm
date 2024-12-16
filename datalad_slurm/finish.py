@@ -174,7 +174,9 @@ class Finish(Interface):
         branch=None,
         jobs=None,
     ):
-        ds = require_dataset(dataset, check_installed=True, purpose="finish a SLURM job")
+        ds = require_dataset(
+            dataset, check_installed=True, purpose="finish a SLURM job"
+        )
         ds_repo = ds.repo
         if since is None:
             if commit:
@@ -197,13 +199,14 @@ class Finish(Interface):
             ):
                 yield r
 
+
 def get_scheduled_commits(since, dset, branch):
     ds_repo = dset.repo
     # get branch
     rev_branch = (
         ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
     )
-    revision = rev_branch    
+    revision = rev_branch
     if since.strip() == "":
         revrange = revision
     else:
@@ -214,7 +217,7 @@ def get_scheduled_commits(since, dset, branch):
     )
     if not rev_lines:
         return
-        
+
     commit_list = []
     for rev_line in rev_lines:
         # The strip() below is necessary because, with the format above, a
@@ -237,7 +240,7 @@ def get_scheduled_commits(since, dset, branch):
             raise ValueError("Error on {}'s message".format(rev)) from exc
 
     return commit_list
-        
+
 
 def finish_cmd(
     commit,
@@ -406,16 +409,25 @@ def _revrange_as_results(dset, revrange):
     # custom `rev-list --parents ...` call to avoid this.)
     fields = rev_line.strip().split(" ")
     rev, parents = fields[0], fields[1:]
-    res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
+    res = get_status_dict("finish", ds=dset, commit=rev, parents=parents)
     full_msg = ds_repo.format_commit("%B", rev)
     try:
         msg, info = get_schedule_info(dset, full_msg)
+        if msg is None or info is None:
+            yield get_status_dict(
+                "finish",
+                ds=dset,
+                status="error",
+                commit=rev,
+                message="Scheduled job cannot be processed as commit message has the wrong format",
+            )
     except ValueError as exc:
         # Recast the error so the message includes the revision.
         raise ValueError("Error on {}'s message".format(rev)) from exc
     res["run_info"] = info
     res["run_message"] = msg
 
+    # TODO - what is happening here?
     # if info is not None:
     #     if len(parents) != 1:
     #         lgr.warning(
