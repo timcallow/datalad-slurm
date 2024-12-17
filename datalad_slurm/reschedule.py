@@ -249,7 +249,7 @@ class Reschedule(Interface):
         script=None,
         report=False,
         assume_ready=None,
-        jobs=None
+        jobs=None,
     ):
 
         ds = require_dataset(
@@ -314,13 +314,22 @@ class Reschedule(Interface):
 
         # get the revrange to check for datalad finish corresponding command
         # don't allow reschedule because we only check for the original job
-        job_finished = check_finish_exists(ds, revision, rev_branch, allow_reschedule=False)
+        job_finished = check_finish_exists(
+            ds, revision, rev_branch, allow_reschedule=False
+        )
         if not job_finished:
+            if job_finished == 0:
+                err_msg = (
+                    f"Commit {revision[:7]} is not a scheduled job. \n"
+                    "N.B., already re-scheduled jobs cannot be re-re-scheduled."
+                )
+            else:
+                err_msg = f"No finish found for schedule commit {revision}"
             yield get_status_dict(
                 "run",
                 ds=ds,
                 status="error",
-                message="No finish found for schedule command".format(branch),
+                message=err_msg,
             )
             return
         results = _rerun_as_results(ds, revrange, since, branch, onto, message)
@@ -335,6 +344,7 @@ class Reschedule(Interface):
 
         for res in handler(ds, results):
             yield res
+
 
 def _revrange_as_results(dset, revrange):
     ds_repo = dset.repo
@@ -581,7 +591,7 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
                 # run records outputs relative to the "pwd" field.
                 if op.relpath(p, outputs_dir) not in outputs
             ]
-            
+
             # remove the slurm outputs from the previous run from the outputs
             old_slurm_outputs = run_info.get("slurm_run_outputs", [])
             outputs = [output for output in outputs if output not in old_slurm_outputs]
@@ -686,7 +696,7 @@ def _get_script_handler(script, since, revision):
                 cmd,
                 **dict(
                     run_info, dspath=dset.path, pwd=op.join(dset.path, run_info["pwd"])
-                )
+                ),
             )
 
             msg = res["run_message"]
@@ -717,7 +727,6 @@ def _get_script_handler(script, since, revision):
             )
 
     return fn
-
 
 
 def diff_revision(dataset, revision="HEAD"):

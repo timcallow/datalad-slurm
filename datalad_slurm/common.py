@@ -187,6 +187,8 @@ def get_slurm_job_id(dset, revision, allow_reschedule=True):
     full_msg = ds_repo.format_commit("%B", rev)
     try:
         msg, info = get_schedule_info(dset, full_msg, allow_reschedule=allow_reschedule)
+        if msg is None or info is None:
+            return
     except ValueError as exc:
         # Recast the error so the message includes the revision.
         raise ValueError("Error on {}'s message".format(rev)) from exc
@@ -198,7 +200,7 @@ def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
     slurm_job_id = get_slurm_job_id(dset, revision, allow_reschedule=allow_reschedule)
     
     if not slurm_job_id:
-        return
+        return 0 # return a special exit code to distinguish errors
 
     # now check the finish exists
     revrange = "{}..{}".format(revision, rev_branch)
