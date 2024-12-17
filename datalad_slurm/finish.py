@@ -156,6 +156,13 @@ class Finish(Interface):
             CMD][PY: `onto` PY] because checking out a new HEAD can easily fail
             when the working tree has modifications.""",
         ),
+        close_failed_jobs=Parameter(
+            args=("--close-failed-jobs",),
+            action="store_true",
+            doc="""Close any jobs which failed or were cancelled.
+            Note that pending or running jobs will never be closed.
+            They first have to be cancelled with `scancel`. """,
+        ),
         jobs=jobs_opt,
     )
 
@@ -171,6 +178,7 @@ class Finish(Interface):
         outputs=None,
         onto=None,
         explicit=True,
+        close_failed_jobs=False,
         branch=None,
         jobs=None,
     ):
@@ -194,6 +202,7 @@ class Finish(Interface):
                 outputs=outputs,
                 onto=None,
                 explicit=explicit,
+                close_failed_jobs=close_failed_jobs,
                 branch=None,
                 jobs=None,
             ):
@@ -250,6 +259,7 @@ def finish_cmd(
     outputs=None,
     onto=None,
     explicit=True,
+    close_failed_jobs=False,
     branch=None,
     jobs=None,
 ):
@@ -331,9 +341,18 @@ def finish_cmd(
 
     job_status = get_job_status(slurm_job_id)
     if job_status != "COMPLETED":
-        message = f"Slurm job for commit {commit[:7]} is not complete. Status is {job_status}."
-        yield get_status_dict("finish", status="error", message=message)
-        return
+        if not close_failed_jobs or job_status in ["PENDING", "RUNNING"]:
+            message = f"Slurm job for commit {commit[:7]} is not complete. Status is {job_status}."
+            yield get_status_dict("finish", status="error", message=message)
+            return
+    
+    if "CANCELLED" in job_status:
+        # strip the user who cancelled the job
+        job_status="CANCELLED"
+        # delete the slurm environment file to force a commit
+        # TODO: ADD THE PATH HERE!!!
+        slurm_env_file = f"slurm-job-{slurm_job_id}.env.json"
+        os.remove(slurm_env_file)
 
     # delete the slurm_job_id file
     # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
@@ -344,7 +363,8 @@ def finish_cmd(
     globbed_outputs = []
     for k in outputs_to_save:
         globbed_outputs.extend(glob.glob(k))
-    # globbed_outputs.append(slurm_submission_file)
+    if job_status=="CANCELLED":
+        globbed_outputs.append(slurm_env_file)
 
     # TODO: this is not saving model files (outputs from first job) for some reason
     # rel_pwd = rerun_info.get('pwd') if rerun_info else None
@@ -364,7 +384,9 @@ def finish_cmd(
 {}
 ^^^ Do not change lines above ^^^
         """
-    message = f"Processed batch job {slurm_job_id}: Complete"
+    job_status = job_status.capitalize()
+    message = f"Processed batch job {slurm_job_id}: {job_status}"
+
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
