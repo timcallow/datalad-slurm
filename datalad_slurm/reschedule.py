@@ -320,8 +320,8 @@ class Reschedule(Interface):
         if not job_finished:
             if job_finished == 0:
                 err_msg = (
-                    f"Commit {revision[:7]} is already a rescheduled job. \n"
-                    + "You can only reschedule the fist scheduled instance of a job, not a reschedule."
+                    f"Commit {revision[:7]} is not a scheduled job. \n"
+                    "N.B., already re-scheduled jobs cannot be re-re-scheduled."
                 )
             else:
                 err_msg = f"No finish found for schedule commit {revision}"
