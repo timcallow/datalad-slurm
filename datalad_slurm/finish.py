@@ -313,7 +313,7 @@ def finish_cmd(
 
     results = _revrange_as_results(ds, revrange)
     if not results:
-        yield get_status_dict("finish", status="error", message="Error in commit message")
+        yield get_status_dict("finish", status="error", message="The commit message {} is in an incorrect format and cannot be parsed".format(commit[:7]))
         return
 
     run_message = results["run_message"]
@@ -331,8 +331,8 @@ def finish_cmd(
 
     job_status = get_job_status(slurm_job_id)
     if job_status != "COMPLETED":
-        message = f"Slurm job is not complete. Status is {job_status}."
-        yield get_status_dict("run", status="error", message=message)
+        message = f"Slurm job for commit {commit[:7]} is not complete. Status is {job_status}."
+        yield get_status_dict("finish", status="error", message=message)
         return
 
     # delete the slurm_job_id file

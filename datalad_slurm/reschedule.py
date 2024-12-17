@@ -320,7 +320,7 @@ class Reschedule(Interface):
                 "run",
                 ds=ds,
                 status="error",
-                message="No finish found for schedule command".format(branch),
+                message=f"No finish found for schedule commit {revision}",
             )
             return
         results = _rerun_as_results(ds, revrange, since, branch, onto, message)
