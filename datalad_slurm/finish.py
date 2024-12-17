@@ -313,7 +313,7 @@ def finish_cmd(
 
     results = _revrange_as_results(ds, revrange)
     if not results:
-        yield get_status_dict("finish", status="error", message="The commit message {} is in an incorrect format and cannot be parsed".format(commit[:7]))
+        yield get_status_dict("finish", status="error", message="The commit message {} is not a DATALAD SCHEDULE commit".format(commit[:7]))
         return
 
     run_message = results["run_message"]
