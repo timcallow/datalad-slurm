@@ -21,6 +21,7 @@ import warnings
 from argparse import REMAINDER
 from pathlib import Path
 from tempfile import mkdtemp
+import glob
 
 import datalad
 import datalad.support.ansi_colors as ac
@@ -821,6 +822,11 @@ def check_output_conflict(dset, outputs):
     """
     Check if the outputs from the current scheduled job conflict with other unfinished jobs.
     """
+    # expand the outputs
+    # TODO figure out how to use GlobbedPaths for this
+    outputs = [glob.glob(k) for k in outputs]
+    outputs = [x for sublist in outputs for x in sublist]
+
     ds_repo = dset.repo
     # get branch
     rev_branch = (
@@ -852,7 +858,9 @@ def check_output_conflict(dset, outputs):
                 if not job_finished:
                     # check if there is any overlap between this job's outputs,
                     # and the outputs from the other unfinished job
-                    commit_outputs = info["outputs"]
+                    # expand the outputs into a single list - why is this not default??
+                    commit_outputs = [glob.glob(k) for k in info["outputs"]]
+                    commit_outputs = [x for sublist in commit_outputs for x in sublist]
                     output_conflict = any(
                         output in outputs for output in commit_outputs
                     )
