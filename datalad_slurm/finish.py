@@ -349,10 +349,17 @@ def finish_cmd(
     if "CANCELLED" in job_status:
         # strip the user who cancelled the job
         job_status="CANCELLED"
-        # delete the slurm environment file to force a commit
+    
+    # we remove the slurm files if the job was cancelled or failed
+    # this (a) forces a commit and (b) cleans up the filesystem
+    # TODO: do we always want to delete these files?
+    if job_status in ["CANCELLED", "FAILED"]:
         # TODO: ADD THE PATH HERE!!!
-        slurm_env_file = f"slurm-job-{slurm_job_id}.env.json"
-        os.remove(slurm_env_file)
+        for output_file in run_info["slurm_run_outputs"]:
+            try:
+                os.remove(output_file)
+            except FileNotFoundError:
+                continue
 
     # delete the slurm_job_id file
     # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
@@ -363,8 +370,9 @@ def finish_cmd(
     globbed_outputs = []
     for k in outputs_to_save:
         globbed_outputs.extend(glob.glob(k))
-    if job_status=="CANCELLED":
-        globbed_outputs.append(slurm_env_file)
+    # TODO should the globbed outputs only be the slurm outputs in this case?
+    if job_status in ["CANCELLED", "FAILED"]:
+        globbed_outputs.extend(run_info["slurm_run_outputs"])
 
     # TODO: this is not saving model files (outputs from first job) for some reason
     # rel_pwd = rerun_info.get('pwd') if rerun_info else None
