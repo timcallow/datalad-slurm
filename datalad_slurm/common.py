@@ -233,6 +233,12 @@ def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
     return
 
 def extract_incomplete_jobs(dset):
+    """
+    Get the number of incomplete jobs, (re)-scheduled jobs with no finish command.
+
+    Finds the most recent finish or (re)-scheduled job. If none is found, returns 0.
+    Used to make datalad finish more efficient.
+    """
     ds_repo = dset.repo
     revrange = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
     rev_lines = ds_repo.get_revisions(
@@ -242,23 +248,22 @@ def extract_incomplete_jobs(dset):
         return 0
 
     for rev_line in rev_lines:
-        print(rev_line)
         # The strip() below is necessary because, with the format above, a
         # commit without any parent has a trailing space. (We could also use a
         # custom `rev-list --parents ...` call to avoid this.)
         fields = rev_line.strip().split(" ")
         rev, parents = fields[0], fields[1:]
         full_msg = ds_repo.format_commit("%B", rev)
+        # see if we get a hit on a finish command
         msg, info = get_finish_info(dset, full_msg)
         if msg and info:
-            print(msg)
             try:
                 return info["incomplete_job_number"]
             except KeyError:
                 return 0
+        # see if we get a hit on a (re)schedule command
         msg, info = get_schedule_info(dset, full_msg)
         if msg and info:
-            print(msg)
             try:
                 return info["incomplete_job_number"]
             except KeyError:
