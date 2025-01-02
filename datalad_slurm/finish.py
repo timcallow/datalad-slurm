@@ -64,7 +64,7 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-from .common import check_finish_exists, get_schedule_info
+from .common import check_finish_exists, get_schedule_info, extract_incomplete_jobs
 
 from datalad.core.local.run import _create_record, get_command_pwds
 
@@ -364,6 +364,10 @@ def finish_cmd(
     # delete the slurm_job_id file
     # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
     # os.remove(slurm_submission_file)
+
+    # get the number of incomplete jobs and subtract one
+    incomplete_job_number = extract_incomplete_jobs(ds)
+    run_info["incomplete_job_number"] = incomplete_job_number - 1
 
     # expand the wildcards
     # TODO do this in a better way with GlobbedPaths

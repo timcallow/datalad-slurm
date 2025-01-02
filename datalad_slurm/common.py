@@ -232,3 +232,36 @@ def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
 
     return
 
+def extract_incomplete_jobs(dset):
+    ds_repo = dset.repo
+    revrange = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+    rev_lines = ds_repo.get_revisions(
+        revrange, fmt="%H %P", options=["--topo-order"]
+    )
+    if not rev_lines:
+        return 0
+
+    for rev_line in rev_lines:
+        print(rev_line)
+        # The strip() below is necessary because, with the format above, a
+        # commit without any parent has a trailing space. (We could also use a
+        # custom `rev-list --parents ...` call to avoid this.)
+        fields = rev_line.strip().split(" ")
+        rev, parents = fields[0], fields[1:]
+        full_msg = ds_repo.format_commit("%B", rev)
+        msg, info = get_finish_info(dset, full_msg)
+        if msg and info:
+            print(msg)
+            try:
+                return info["incomplete_job_number"]
+            except KeyError:
+                return 0
+        msg, info = get_schedule_info(dset, full_msg)
+        if msg and info:
+            print(msg)
+            try:
+                return info["incomplete_job_number"]
+            except KeyError:
+                return 0
+    return 0
+
