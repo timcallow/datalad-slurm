@@ -715,6 +715,9 @@ def run_command(
         globbed["outputs"].expand(refresh=True)
         if expand in ["outputs", "both"]:
             run_info["outputs"] = globbed["outputs"].paths
+            # add the slurm outputs and environment files
+            # these are not captured in the initial globbing
+            run_info["outputs"].extend(slurm_outputs)
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
