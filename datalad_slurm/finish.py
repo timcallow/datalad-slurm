@@ -163,6 +163,11 @@ class Finish(Interface):
             Note that pending or running jobs will never be closed.
             They first have to be cancelled with `scancel`. """,
         ),
+        list_open_jobs=Parameter(
+            args=("--list-open-jobs",),
+            action="store_true",
+            doc="""List all open scheduled jobs (those which haven't been finished).""",
+        ),
         jobs=jobs_opt,
     )
 
@@ -179,6 +184,7 @@ class Finish(Interface):
         onto=None,
         explicit=True,
         close_failed_jobs=False,
+        list_open_jobs=False,
         branch=None,
         jobs=None,
     ):
@@ -189,10 +195,22 @@ class Finish(Interface):
         if since is None:
             if commit:
                 commit_list = [commit]
+                slurm_job_id_list = []
+                job_status_list = []
             else:
-                commit_list = get_scheduled_commits("", ds, branch)
+                commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits("", ds, branch)
         else:
-            commit_list = get_scheduled_commits(since, ds, branch)
+            commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits(since, ds, branch)
+        # list the open jobs if requested
+        # if a single commit was specified, nothing happens
+        # TODO: code with triple list and multiple prints is a bit ugly, consider refactor
+        if list_open_jobs:
+            if slurm_job_id_list:
+                print("The following jobs are open: \n")
+                print(f"{'commit-id':<10} {'slurm-job-id':<14} {'slurm-job-status'}")
+                for i, commit_element in enumerate(commit_list):
+                    print(f"{commit_element[:7]:<10} {slurm_job_id_list[i]:<14} {job_status_list[i]}")
+            return
         for commit_element in commit_list:
             for r in finish_cmd(
                 commit_element,
@@ -228,6 +246,8 @@ def get_scheduled_commits(since, dset, branch):
         return
 
     commit_list = []
+    slurm_job_id_list = []
+    job_status_list = []
     for rev_line in rev_lines:
         # The strip() below is necessary because, with the format above, a
         # commit without any parent has a trailing space. (We could also use a
@@ -243,19 +263,24 @@ def get_scheduled_commits(since, dset, branch):
         try:
             msg, info = get_schedule_info(dset, full_msg)
             if msg and info:
+                slurm_job_id = info["slurm_job_id"]
                 # then we have a hit on the schedule
                 # check if a corresponding finish command exists
                 job_finished = check_finish_exists(dset, rev, rev_branch)
                 if not job_finished:
                     commit_list.append(rev)
+                    slurm_job_id_list.append(slurm_job_id)
+                    job_status_list.append(get_job_status(slurm_job_id))
         except ValueError as exc:
             # Recast the error so the message includes the revision.
             raise ValueError("Error on {}'s message".format(rev)) from exc
 
     # reverse the order
     commit_list.reverse()
+    slurm_job_id_list.reverse()
+    job_status_list.reverse()
 
-    return commit_list
+    return commit_list, slurm_job_id_list, job_status_list
 
 
 def finish_cmd(
