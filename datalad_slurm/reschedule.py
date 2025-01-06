@@ -314,25 +314,26 @@ class Reschedule(Interface):
 
         # get the revrange to check for datalad finish corresponding command
         # don't allow reschedule because we only check for the original job
-        job_finished = check_finish_exists(
-            ds, revision, rev_branch, allow_reschedule=False
-        )
-        if not job_finished:
-            if job_finished == 0:
-                err_msg = (
-                    f"Commit {revision[:7]} is not a scheduled job. \n"
-                    "N.B., already re-scheduled jobs cannot be re-re-scheduled."
-                )
-            else:
-                err_msg = f"No finish found for schedule commit {revision}"
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="error",
-                message=err_msg,
+        if not since:
+            job_finished = check_finish_exists(
+                ds, revision, rev_branch, allow_reschedule=False
             )
-            return
-        results = _rerun_as_results(ds, revrange, since, branch, onto, message)
+            if not job_finished:
+                if job_finished == 0:
+                    err_msg = (
+                        f"Commit {revision[:7]} is not a scheduled job. \n"
+                        "N.B., already re-scheduled jobs cannot be re-re-scheduled."
+                    )
+                else:
+                    err_msg = f"No finish found for schedule commit {revision}"
+                yield get_status_dict(
+                    "run",
+                    ds=ds,
+                    status="error",
+                    message=err_msg,
+                )
+                return
+        results = _rerun_as_results(ds, revrange, since, branch, onto, message, rev_branch)
         if script:
             handler = _get_script_handler(script, since, revision)
         elif report:
@@ -382,7 +383,7 @@ def _revrange_as_results(dset, revrange):
         yield dict(res, status="ok")
 
 
-def _rerun_as_results(dset, revrange, since, branch, onto, message):
+def _rerun_as_results(dset, revrange, since, branch, onto, message, rev_branch):
     """Represent the rerun as result records.
 
     In the standard case, the information in these results will be used to
@@ -405,9 +406,10 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message):
             "run",
             status="impossible",
             ds=dset,
-            message=("No run commits found in range %s", revrange),
+            message=("No schedule commits found in range %s", revrange),
         )
         return
+
 
     if onto is not None and onto.strip() == "":
         onto = results[0]["commit"] + "^"
@@ -447,10 +449,19 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message):
                 skip_or_pick(hexsha, res, "was ran from a different dataset")
                 res["status"] = "impossible"
             else:
-                res["rerun_action"] = "run"
-                res["diff"] = diff_revision(dset, hexsha)
-                # This is the overriding message, if any, passed to this rerun.
-                res["rerun_message"] = message
+                job_finished = check_finish_exists(
+                    dset, hexsha, rev_branch, allow_reschedule=False
+                )
+                if not job_finished:
+                    if job_finished == 0:
+                        skip_or_pick(hexsha, res, "not a scheduled job")
+                    else:
+                        skip_or_pick(hexsha, res, "scheduled job must have a corresponding finish")
+                else:
+                    res["rerun_action"] = "run"
+                    res["diff"] = diff_revision(dset, hexsha)
+                    # This is the overriding message, if any, passed to this rerun.
+                    res["rerun_message"] = message
         else:
             if len(res["parents"]) > 1:
                 res["rerun_action"] = "merge"
