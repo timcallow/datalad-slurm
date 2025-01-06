@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
-set -e # abort on errors
+set +e # do NOT abort on errors
 
 # Test datalad 'schedule' and 'finish' functionality
 #   - create some job dirs and job scripts and 'commit' them
 #   - then 'datalad schedule' all jobs from their job dirs
+#   - then 'datalad schedule' more jobs from the same set of job dirs
 #   - wait until all of them are finished, then run 'datalad finish'
 #
-# Expected results: should run without any errors
+# Expected results: should handle the first set of jobs fine until the end, 
+# but refuse to schedule the second set of jobs
 
 if [[ -z $1 ]] ; then
 
@@ -28,7 +30,7 @@ echo "from src dir "$B
 
 ## create a test repo
 
-TESTDIR=$D/"datalad-slurm-test-01_"`date -Is|tr -d ":"`
+TESTDIR=$D/"datalad-slurm-test-02_"`date -Is|tr -d ":"`
 
 datalad create -c text2git $TESTDIR
 
@@ -43,24 +45,42 @@ TARGETS=`seq 17 21`
 
 for i in $TARGETS ; do
 
-    DIR="test_01_output_dir_"$i
+    DIR="test_02_output_dir_"$i
     mkdir -p $DIR
 
     cp slurm_test01.template.sh $DIR/slurm_test01.sh
+    cp slurm_test01.template.sh $DIR/slurm_test02.sh
 
 done
 
 datalad save -m "add test job dirs and scripts"
 
+echo "    --> schedule some jobs"
+
 for i in $TARGETS ; do
 
-    DIR="test_01_output_dir_"$i
+    DIR="test_02_output_dir_"$i
 
     cd $DIR
     datalad schedule -o $PWD sbatch slurm_test01.sh
     cd ..
 
 done
+
+sleep 5s
+
+echo "    --> now try to schedule conflicting jobs"
+
+for i in $TARGETS ; do
+
+    DIR="test_02_output_dir_"$i
+
+    cd $DIR
+    datalad schedule -o $PWD sbatch slurm_test02.sh
+    cd ..
+
+done
+
 
 while [[ 0 != `squeue -u $USER | grep "DLtest01" | wc -l` ]] ; do
 

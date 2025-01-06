@@ -18,4 +18,10 @@ Test creating many job dirs with job scripts in it, then `datalad schedule` and 
 
 This should run without any errors.
 
+## Test 02
 
+Test creating many job dirs with job scripts in it like in Test 01. However, they have conflicting output directories so datalad should refuse to schedule some of them.
+
+This should produce some errors by datalad:
+* The first bunch of jobs should run fine includeing a clean `datalad finish`
+* The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
