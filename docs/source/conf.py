@@ -89,7 +89,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'Datalad Extension Template'
+project = u'datalad-slurm extension'
 copyright = u'2018-{}, DataLad team'.format(datetime.datetime.now().year)
 author = u'DataLad team'
 
