@@ -1,31 +1,68 @@
-# Tests for the datalad Slurm extension
+# datalad-slurm: A DataLad extension for HPC (slurm) systems
 
-The following tests scripts can be executed manually and should run correctly or produce errors that should be handled as errors.
-
-Since it needs to work on datalad repositories which are also git repositories, and because a working Slurm environment is required, this is not (yet) part of automated CI tests ... let's see later if this would be feasible via git CI anyway.
+[![Build status](https://ci.appveyor.com/api/projects/status/g9von5wtpoidcecy/branch/main?svg=true)](https://ci.appveyor.com/project/mih/datalad-extension-template/branch/main) [![codecov.io](https://codecov.io/github/datalad/datalad-extension-template/coverage.svg?branch=main)](https://codecov.io/github/datalad/datalad-extension-template?branch=main) [![crippled-filesystems](https://github.com/datalad/datalad-extension-template/workflows/crippled-filesystems/badge.svg)](https://github.com/datalad/datalad-extension-template/actions?query=workflow%3Acrippled-filesystems) [![docs](https://github.com/datalad/datalad-extension-template/workflows/docs/badge.svg)](https://github.com/datalad/datalad-extension-template/actions?query=workflow%3Adocs)
 
 
+`datalad-slurm` is an extension to the [DataLad](http://datalad.org) package for high-performance computing (HPC), specifically slurm systems. 
 
-## In general
+DataLad is a package which facilitates adherence to the [FAIR](https://www.nature.com/articles/sdata201618) research data management principles.
 
-Each test should be run as:
+`datalad-slurm` sits on top of the main DataLad package, and it is designed to improve the DataLad workflow on HPC systems. The package is aimed at slurm systems due to the prominence of slurm in HPC settings, but in the future it may be extended to HPC systems more generally. 
 
-`./test_x.sh <dir>`, where `<dir>` is some (temporary) directory to store the test results.
+`datalad-slurm` makes it easier for users to manage their research data on HPC systems with DataLad, and also solves the following conflicts of DataLad usage in HPC systems:
 
-All tests will create their own temporary datalad repo inside `<dir>` and work inside that. They can be removed after with `chmod -R u+w datalad-slurm-test*/; rm -Rf datalad-slurm-test*/`
+- **Inefficient** sequential sections in highly parallel HPC jobs
+- **Critical** race conditions between git commands in concurrent jobs
 
-The `slurm_test*.template.sh` files need to be modified to match the local slurm environment.
+## Installation
 
-## Test 01
+First, install the main [DataLad](http://datalad.org) package and its dependencies.
 
-Test creating many job dirs with job scripts in it, then `datalad schedule` and run all jobs, wait until all run through, then `datalad finish` all jobs.
+Then, clone this repository and install the extension with:
 
-This should run without any errors.
+    pip install -e .
 
-## Test 02
+## Example usage
 
-Test creating many job dirs with job scripts in it like in Test 01. However, they have conflicting output directories so datalad should refuse to schedule some of them.
+To **schedule** a slurm script:
 
-This should produce some errors by datalad:
-* The first bunch of jobs should run fine including a clean `datalad finish`
-* The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+    datalad schedule --output=<output_files_or_dir> <slurm_submission_command>
+
+where `<output_files_or_dir>` are the expected outputs from the job, and `<slurm_submission_command>` is for example `sbatch submit_script`. Further optional command line arguments can be found in the documentation.
+
+To **finish** (i.e. post-process) a job that was previously scheduled and is since finished:
+
+    datalad finish <commit_hash>
+
+where `<commit_hash>` is the commit hash of the previously scheduled job. Alternatively, to post-process all scheduled jobs, or all scheduled jobs since a certain commit, one can run
+
+    datalad finish
+or
+
+    datalad finish --since=<since_commit_hash>
+
+where `<since_commit_hash>` is the commit hash before all the entries in the `git log` that you want to consider.
+
+`datalad-slurm` will flag an error for any jobs which could not be post-processed, either because they are still running, or the job failed.
+
+To **reschedule** a previously scheduled job:
+
+    datalad reschedule <schedule_commit_hash>
+
+where `<schedule_commit_hash>` is the commit hash of the previously scheduled job. There must also be a corresponding `datalad finish` command to the original `datalad schedule`, otherwise `datalad reschedule` will throw an error.
+
+In the lingo of the original DataLad package, the combination of `datalad schedule + datalad finish` is similar to `datalad run`, and `datalad reschedule + datalad finish` is similar to `datalad rerun`. One important difference is that the `datalad-slurm` commands always produce a pair of commits in the git history, whereas `datalad run` produces just one commit, and `datalad rerun` produces one or no commits, depending if there is any change to the outputs.
+
+The git history might look a bit like this after running a few of these commands:
+
+    4992a23 [DATALAD FINISH] Processed batch job 9166291: Complete
+    732264c [DATALAD RESCHEDULE] Submitted batch job 9166291: Pending
+    0c982f3 [DATALAD FINISH] Processed batch job 9163380: Complete
+    4c021f4 [DATALAD SCHEDULE] Submitted batch job 9163380: Pending
+
+## Contributing
+
+The `datalad-slurm` extension is still in the very early stages of development. We welcome contributors and testers of the package. Please document any issues on GitHub and we will try to resolve them.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) if you are interested in internals or
+contributing to the project.
