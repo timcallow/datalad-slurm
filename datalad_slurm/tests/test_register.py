@@ -1,5 +1,5 @@
 from datalad.tests.utils_pytest import assert_result_count
-
+import datalad.support.exceptions as dl_exceptions
 
 def test_register():
     import datalad.api as da
@@ -9,13 +9,13 @@ def test_register():
     assert_result_count(
         da.schedule(cmd="echo test", dry_run="basic"),
         1,
-        action='demo')
+        status="ok")
     assert_result_count(
         da.finish(),
-        1,
-        action='demo')
-    assert_result_count(
-        da.reschedule(since="HEAD~1", report=True),
-        1,
-        action='demo')
-
+        0,
+        status="ok")
+    try:
+        da.reschedule(since="HEAD~1", report=True)
+        assert False
+    except dl_exceptions.IncompleteResultsError:
+        assert True
