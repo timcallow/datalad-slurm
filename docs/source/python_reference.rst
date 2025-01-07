@@ -6,3 +6,5 @@ High-level API commands
    :toctree: generated
 
    schedule
+   finish
+   reschedule

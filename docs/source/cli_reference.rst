@@ -5,3 +5,5 @@ Command line reference
    :maxdepth: 1
 
    generated/man/datalad-schedule
+   generated/man/datalad-finish
+   generated/man/datalad-reschedule
