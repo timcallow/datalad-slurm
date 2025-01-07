@@ -748,6 +748,11 @@ def run_command(
     else:
         message = f"Submitted batch job {slurm_job_id}: Pending"
 
+    # add extra info for re-scheduled jobs
+    if rerun_info:
+        slurm_id_old = rerun_info["slurm_job_id"]
+        message += f"\n\nRe-submission of job {slurm_id_old}."
+
     msg = msg.format(
         message if message is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record,
