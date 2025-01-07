@@ -7,7 +7,7 @@ def test_register():
     assert hasattr(da, 'finish')
     assert hasattr(da, 'reschedule')
     assert_result_count(
-        da.schedule(),
+        da.schedule(cmd="echo test", dry_run="basic"),
         1,
         action='demo')
     assert_result_count(
@@ -15,7 +15,7 @@ def test_register():
         1,
         action='demo')
     assert_result_count(
-        da.reschedule(),
+        da.reschedule(since="HEAD~1", report=True),
         1,
         action='demo')
 
