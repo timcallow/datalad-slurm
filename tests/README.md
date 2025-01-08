@@ -43,3 +43,16 @@ Like test 03 with disjoint output files in the same output dir. But then try to 
 This should produce some errors by datalad:
 * The first bunch of jobs should run fine including a clean `datalad finish`
 * The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+
+## Test 05
+
+Test how datalad 'schedule' and 'finish' handle failed jobs
+* create some job dirs and job scripts and 'commit' them
+* then 'datalad schedule' all jobs from their job dirs
+* some of the jobs will fail (also feel free to `scancel some`)
+* wait until all of them are finished, then run 'datalad finish'
+* check if the remaining jobs will be shown correctly
+* check if the remaining jobs are correctly closed
+
+
+Expected results: should run without any errors
