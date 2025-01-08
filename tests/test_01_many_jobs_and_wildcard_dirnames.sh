@@ -73,6 +73,6 @@ datalad finish --list-open-jobs
 echo "finishing completed jobs:"
 datalad finish
 
-echo " ### git log in this repo ### "
-echo ""
-git log
+#echo " ### git log in this repo ### "
+#echo ""
+#git log
