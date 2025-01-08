@@ -36,7 +36,7 @@ datalad create -c text2git $TESTDIR
 ### generic part for all the tests ending here, specific parts follow ###
 
 
-cp $B/slurm_test01.template.sh $TESTDIR/
+cp $B/slurm_test01.template.sh $TESTDIR/slurm.template.sh
 cd $TESTDIR
 
 TARGETS=`seq 17 21`
@@ -46,7 +46,7 @@ for i in $TARGETS ; do
     DIR="test_01_output_dir_"$i
     mkdir -p $DIR
 
-    cp slurm_test01.template.sh $DIR/slurm_test01.sh
+    cp slurm.template.sh $DIR/slurm.sh
 
 done
 
@@ -57,7 +57,7 @@ for i in $TARGETS ; do
     DIR="test_01_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm_test01.sh
+    datalad schedule -o $PWD sbatch slurm.sh
     cd ..
 
 done

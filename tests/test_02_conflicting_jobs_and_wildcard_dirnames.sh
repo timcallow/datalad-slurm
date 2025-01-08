@@ -4,7 +4,7 @@ set +e # do NOT abort on errors
 
 # Test datalad 'schedule' and 'finish' functionality
 #   - create some job dirs and job scripts and 'commit' them
-#   - then 'datalad schedule' all jobs from their job dirs
+#   - then 'datalad schedule' all jobs from their job dirs, this time with wildcards in the dir names
 #   - then 'datalad schedule' more jobs from the same set of job dirs
 #   - wait until all of them are finished, then run 'datalad finish'
 #
@@ -62,7 +62,8 @@ for i in $TARGETS ; do
     DIR="test_02_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm1.sh
+    echo datalad schedule -o "test_*_output_dir_"$i sbatch slurm1.sh
+    datalad schedule -o "test_*_output_dir_"$i sbatch slurm1.sh
     cd ..
 
 done
@@ -76,7 +77,8 @@ for i in $TARGETS ; do
     DIR="test_02_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm2.sh
+    echo datalad schedule -o "test_*_output_dir_"$i sbatch slurm2.sh
+    datalad schedule -o "test_*_output_dir_"$i sbatch slurm2.sh
     cd ..
 
 done

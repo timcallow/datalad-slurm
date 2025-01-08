@@ -16,15 +16,19 @@ All tests will create their own temporary datalad repo inside `<dir>` and work i
 
 The `slurm_test*.template.sh` files need to be modified to match the local slurm environment.
 
-## Test 01
+## Test 01 (2 versions)
 
 Test creating many job dirs with job scripts in it, then `datalad schedule` and run all jobs, wait until all run through, then `datalad finish` all jobs.
 
+The second version uses a wildcard in the dirnames.
+
 This should run without any errors.
 
-## Test 02
+## Test 02 (2 versions)
 
 Test creating many job dirs with job scripts in it like in Test 01. However, they have conflicting output directories so datalad should refuse to schedule some of them.
+
+The second version uses a wildcard in the dirnames.
 
 This should produce some errors by datalad:
 * The first bunch of jobs should run fine including a clean `datalad finish`
