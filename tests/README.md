@@ -29,3 +29,17 @@ Test creating many job dirs with job scripts in it like in Test 01. However, the
 This should produce some errors by datalad:
 * The first bunch of jobs should run fine including a clean `datalad finish`
 * The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+
+## Test 03
+
+Test scheduling many job in the same dir with disjoint output filesand wait until all run through, then `datalad finish` all jobs.
+
+This should run without any errors.
+
+## Test 04
+
+Like test 03 with disjoint output files in the same output dir. But then try to schedule conflicting jobs with the same output files again.
+
+This should produce some errors by datalad:
+* The first bunch of jobs should run fine including a clean `datalad finish`
+* The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.

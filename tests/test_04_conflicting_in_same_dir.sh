@@ -4,9 +4,11 @@ set -e # abort on errors
 
 # Test datalad 'schedule' and 'finish' functionality
 #   - 'datalad schedule' several jobs with the same output dir but different output file names
+#   - then 'datalad schedule' more jobs from the same set of job dirs
 #   - wait until all of them are finished, then run 'datalad finish'
 #
-# Expected results: should run without any errors
+# Expected results: should handle the first set of jobs fine until the end, 
+# but refuse to schedule the second set of jobs
 
 if [[ -z $1 ]] ; then
 
