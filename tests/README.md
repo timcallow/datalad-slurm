@@ -58,5 +58,13 @@ Test how datalad 'schedule' and 'finish' handle failed jobs
 * check if the remaining jobs will be shown correctly
 * check if the remaining jobs are correctly closed
 
+Expected results: should run without any errors
+
+## Test 06
+
+Test with array jobs, that is one main job which gets scheduled but many jobs are created out of it by Slurm.
+
+* `datalad schedule` and `finish` will only deal with the main jobs and only those will be recorded in the git log.
+* However, there will be multiple `slurm*.out` files and `slurm-job-*.env.json` files that need to be tracked as outputs of such a job.
 
 Expected results: should run without any errors
