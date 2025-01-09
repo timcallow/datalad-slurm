@@ -222,6 +222,15 @@ class Schedule(Interface):
             commit message.""",
             constraints=EnsureChoice(None, "inputs", "outputs", "both"),
         ),
+        allow_wildcard_outputs=Parameter(
+            args=("--allow-wildcard-outputs",),
+            action="store_true",
+            doc="""Allow outputs to contain wildcard entries.
+            This is disabled by default because the outputs cannot be expanded
+            at submission time if the files don't exist yet. If enabled, the user
+            must specify distinct paths with wildcards, otherwise the job will
+            be rejected (unless check-outputs is also disabled).""",
+        ),
         assume_ready=assume_ready_opt,
         message=save_message_opt,
         check_outputs=Parameter(
@@ -277,6 +286,7 @@ class Schedule(Interface):
         assume_ready=None,
         message=None,
         check_outputs=True,
+        allow_wildcard_outputs=False,
         dry_run=None,
         jobs=None,
     ):
@@ -289,6 +299,7 @@ class Schedule(Interface):
             assume_ready=assume_ready,
             message=message,
             check_outputs=check_outputs,
+            allow_wildcard_outputs=allow_wildcard_outputs,
             dry_run=dry_run,
             jobs=jobs,
         ):
@@ -438,6 +449,7 @@ def run_command(
     assume_ready=None,
     message=None,
     check_outputs=True,
+    allow_wildcard_outputs=False,
     sidecar=None,
     dry_run=False,
     jobs=None,
@@ -544,6 +556,19 @@ def run_command(
                 message=(
                     "clean dataset required to detect changes from command; "
                     "use `datalad status` to inspect unsaved changes"
+                ),
+            )
+            return
+            
+    if not allow_wildcard_outputs:
+        if "*" or "?" in outputs:
+            yield get_status_dict(
+                "run",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "Outputs include wildcards. This error can be disabled "
+                    "with the parameter --allow-wildcard-outputs."
                 ),
             )
             return
@@ -834,11 +859,6 @@ def check_output_conflict(dset, outputs):
     """
     Check if the outputs from the current scheduled job conflict with other unfinished jobs.
     """
-    # expand the outputs
-    # TODO figure out how to use GlobbedPaths for this
-    outputs = [glob.glob(k) for k in outputs]
-    outputs = [x for sublist in outputs for x in sublist]
-
     ds_repo = dset.repo
     # get branch
     rev_branch = (
@@ -871,8 +891,7 @@ def check_output_conflict(dset, outputs):
                     # check if there is any overlap between this job's outputs,
                     # and the outputs from the other unfinished job
                     # expand the outputs into a single list - why is this not default??
-                    commit_outputs = [glob.glob(k) for k in info["outputs"]]
-                    commit_outputs = [x for sublist in commit_outputs for x in sublist]
+                    commit_outputs = info["outputs"]
                     output_conflict = any(
                         output in outputs for output in commit_outputs
                     )
