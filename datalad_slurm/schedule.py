@@ -213,8 +213,11 @@ class Schedule(Interface):
             value of "." means "run :command:`datalad unlock .`" (and will fail
             if some content isn't present). For any other value, if the content
             of this file is present, unlock the file. Otherwise, remove it. The
-            value can also be a glob. [CMD: This option can be given more than
-            once. CMD]""",
+            value can also be a glob if --allow-wildcard-outputs is enabled.
+            N.B.: If outputs contain wildcards, it is esssential to enclose them in
+            quotations, e.g. -o "file*.txt", NOT -o file*.txt. This is so that wildcard
+            expansion is performed inside datalad-slurm and not on the command line.
+            [CMD: This option can be given more than once. CMD]""",
         ),
         expand=Parameter(
             args=("--expand",),
@@ -227,9 +230,10 @@ class Schedule(Interface):
             action="store_true",
             doc="""Allow outputs to contain wildcard entries.
             This is disabled by default because the outputs cannot be expanded
-            at submission time if the files don't exist yet. If enabled, the user
-            must specify distinct paths with wildcards, otherwise the job will
-            be rejected (unless check-outputs is also disabled).""",
+            at submission time if the files don't exist yet.
+            If enabled, no expansion of wildcards is performed, and only the raw
+            string is checked against raw strings from previous schedule commands.
+            So take care to ensure proper output definitions with this argument enabled.""",
         ),
         assume_ready=assume_ready_opt,
         message=save_message_opt,
@@ -559,7 +563,7 @@ def run_command(
                 ),
             )
             return
-        
+    
     if not allow_wildcard_outputs:
         wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
         if any(char in output for char in wildcard_list for output in outputs):
