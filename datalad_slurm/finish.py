@@ -405,8 +405,12 @@ def finish_cmd(
     # TODO do this in a better way with GlobbedPaths
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
     # TODO should the globbed outputs only be the slurm outputs in this case?
+    # TODO not sure why this is here?
     if job_status in ["CANCELLED", "FAILED"]:
         globbed_outputs.extend(run_info["slurm_run_outputs"])
+
+    # remove duplicated outputs
+    globbed_outputs=list(dict.fromkeys(globbed_outputs))
 
     # update the run info with the new outputs
     run_info["outputs"] = globbed_outputs
