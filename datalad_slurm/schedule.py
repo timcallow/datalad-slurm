@@ -559,9 +559,10 @@ def run_command(
                 ),
             )
             return
-            
+        
     if not allow_wildcard_outputs:
-        if "*" or "?" in outputs:
+        wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
+        if any(char in output for char in wildcard_list for output in outputs):
             yield get_status_dict(
                 "run",
                 ds=ds,
