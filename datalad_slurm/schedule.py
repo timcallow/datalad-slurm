@@ -213,14 +213,27 @@ class Schedule(Interface):
             value of "." means "run :command:`datalad unlock .`" (and will fail
             if some content isn't present). For any other value, if the content
             of this file is present, unlock the file. Otherwise, remove it. The
-            value can also be a glob. [CMD: This option can be given more than
-            once. CMD]""",
+            value can also be a glob if --allow-wildcard-outputs is enabled.
+            N.B.: If outputs contain wildcards, it is esssential to enclose them in
+            quotations, e.g. -o "file*.txt", NOT -o file*.txt. This is so that wildcard
+            expansion is performed inside datalad-slurm and not on the command line.
+            [CMD: This option can be given more than once. CMD]""",
         ),
         expand=Parameter(
             args=("--expand",),
             doc="""Expand globs when storing inputs and/or outputs in the
             commit message.""",
             constraints=EnsureChoice(None, "inputs", "outputs", "both"),
+        ),
+        allow_wildcard_outputs=Parameter(
+            args=("--allow-wildcard-outputs",),
+            action="store_true",
+            doc="""Allow outputs to contain wildcard entries.
+            This is disabled by default because the outputs cannot be expanded
+            at submission time if the files don't exist yet.
+            If enabled, no expansion of wildcards is performed, and only the raw
+            string is checked against raw strings from previous schedule commands.
+            So take care to ensure proper output definitions with this argument enabled.""",
         ),
         assume_ready=assume_ready_opt,
         message=save_message_opt,
@@ -277,6 +290,7 @@ class Schedule(Interface):
         assume_ready=None,
         message=None,
         check_outputs=True,
+        allow_wildcard_outputs=False,
         dry_run=None,
         jobs=None,
     ):
@@ -289,6 +303,7 @@ class Schedule(Interface):
             assume_ready=assume_ready,
             message=message,
             check_outputs=check_outputs,
+            allow_wildcard_outputs=allow_wildcard_outputs,
             dry_run=dry_run,
             jobs=jobs,
         ):
@@ -438,6 +453,7 @@ def run_command(
     assume_ready=None,
     message=None,
     check_outputs=True,
+    allow_wildcard_outputs=False,
     sidecar=None,
     dry_run=False,
     jobs=None,
@@ -544,6 +560,20 @@ def run_command(
                 message=(
                     "clean dataset required to detect changes from command; "
                     "use `datalad status` to inspect unsaved changes"
+                ),
+            )
+            return
+    
+    if not allow_wildcard_outputs and outputs:
+        wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
+        if any(char in output for char in wildcard_list for output in outputs):
+            yield get_status_dict(
+                "run",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "Outputs include wildcards. This error can be disabled "
+                    "with the parameter --allow-wildcard-outputs."
                 ),
             )
             return
@@ -834,11 +864,6 @@ def check_output_conflict(dset, outputs):
     """
     Check if the outputs from the current scheduled job conflict with other unfinished jobs.
     """
-    # expand the outputs
-    # TODO figure out how to use GlobbedPaths for this
-    outputs = [glob.glob(k) for k in outputs]
-    outputs = [x for sublist in outputs for x in sublist]
-
     ds_repo = dset.repo
     # get branch
     rev_branch = (
@@ -871,8 +896,7 @@ def check_output_conflict(dset, outputs):
                     # check if there is any overlap between this job's outputs,
                     # and the outputs from the other unfinished job
                     # expand the outputs into a single list - why is this not default??
-                    commit_outputs = [glob.glob(k) for k in info["outputs"]]
-                    commit_outputs = [x for sublist in commit_outputs for x in sublist]
+                    commit_outputs = info["outputs"]
                     output_conflict = any(
                         output in outputs for output in commit_outputs
                     )
