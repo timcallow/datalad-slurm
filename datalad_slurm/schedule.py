@@ -1009,7 +1009,7 @@ def parse_slurm_output(output):
                     result[key] = value
     return result
 
-def generate_array_job_names(job_id: str, job_task_id: str) -> list[str]:
+def generate_array_job_names(job_id, job_task_id):
     """
     Generate individual job names for a Slurm array job.
     
