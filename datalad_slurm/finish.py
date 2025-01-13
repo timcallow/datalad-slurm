@@ -198,9 +198,13 @@ class Finish(Interface):
                 slurm_job_id_list = []
                 job_status_list = []
             else:
-                commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits("", ds, branch)
+                commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits(
+                    "", ds, branch
+                )
         else:
-            commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits(since, ds, branch)
+            commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits(
+                since, ds, branch
+            )
         # list the open jobs if requested
         # if a single commit was specified, nothing happens
         # TODO: code with triple list and multiple prints is a bit ugly, consider refactor
@@ -209,7 +213,9 @@ class Finish(Interface):
                 print("The following jobs are open: \n")
                 print(f"{'commit-id':<10} {'slurm-job-id':<14} {'slurm-job-status'}")
                 for i, commit_element in enumerate(commit_list):
-                    print(f"{commit_element[:7]:<10} {slurm_job_id_list[i]:<14} {job_status_list[i]}")
+                    print(
+                        f"{commit_element[:7]:<10} {slurm_job_id_list[i]:<14} {job_status_list[i]}"
+                    )
             return
         for commit_element in commit_list:
             for r in finish_cmd(
@@ -239,9 +245,7 @@ def get_scheduled_commits(since, dset, branch):
     else:
         revrange = "{}..{}".format(since, revision)
 
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--topo-order"]
-    )
+    rev_lines = ds_repo.get_revisions(revrange, fmt="%H %P", options=["--topo-order"])
     if not rev_lines:
         return
 
@@ -270,7 +274,8 @@ def get_scheduled_commits(since, dset, branch):
                 if not job_finished:
                     commit_list.append(rev)
                     slurm_job_id_list.append(slurm_job_id)
-                    job_status_list.append(get_job_status(slurm_job_id))
+                    _, job_status_group = get_job_status(slurm_job_id)
+                    job_status_list.append(job_status_group)
         except ValueError as exc:
             # Recast the error so the message includes the revision.
             raise ValueError("Error on {}'s message".format(rev)) from exc
@@ -355,7 +360,13 @@ def finish_cmd(
 
     results = _revrange_as_results(ds, revrange)
     if not results:
-        yield get_status_dict("finish", status="error", message="The commit message {} is not a DATALAD SCHEDULE commit".format(commit[:7]))
+        yield get_status_dict(
+            "finish",
+            status="error",
+            message="The commit message {} is not a DATALAD SCHEDULE commit".format(
+                commit[:7]
+            ),
+        )
         return
 
     run_message = results["run_message"]
@@ -371,42 +382,56 @@ def finish_cmd(
 
     slurm_job_id = results["run_info"]["slurm_job_id"]
 
-    job_status = get_job_status(slurm_job_id)
-    if job_status != "COMPLETED":
-        if not close_failed_jobs or job_status in ["PENDING", "RUNNING"]:
-            message = f"Slurm job for commit {commit[:7]} is not complete. Status is {job_status}."
+    # get a list of job ids and status (if we have an array job)
+    job_states, job_status_group = get_job_status(slurm_job_id)
+
+    status_text = "Job ID: Job state \n"
+    for job_id, state in job_states.items():
+        status_text += f"{job_id}: {state} \n"
+
+    # process these job ids and job statuses
+    if not all(status == "COMPLETED" for status in job_states.values()):
+        if not close_failed_jobs or any(
+            status in ["PENDING", "RUNNING"] for status in job_states.values()
+        ):
+            status_summary = ", ".join(
+                f"{job_id}: {status}" for job_id, status in job_states.items()
+            )
+            message = f"Slurm job(s) for commit {commit[:7]} are not complete. Statuses: {status_summary}"
             yield get_status_dict("finish", status="error", message=message)
             return
-    
-    if "CANCELLED" in job_status:
-        # strip the user who cancelled the job
-        job_status="CANCELLED"
-    
-    # we remove the slurm files if the job was cancelled or failed
-    # this (a) forces a commit and (b) cleans up the filesystem
-    # TODO: do we always want to delete these files?
-    if job_status in ["CANCELLED", "FAILED"]:
-        # TODO: ADD THE PATH HERE!!!
-        for output_file in run_info["slurm_run_outputs"]:
-            try:
-                os.remove(output_file)
-            except FileNotFoundError:
-                continue
 
-    # delete the slurm_job_id file
-    # slurm_submission_file = f"slurm-job-submission-{slurm_job_id}"
-    # os.remove(slurm_submission_file)
+    # Process each job status
+    for job_id, status in job_states.items():
+
+        # Remove slurm files for CANCELLED or FAILED jobs
+        if job_states[job_id] in ["CANCELLED", "FAILED"]:
+            # TODO: ADD THE PATH HERE!!!
+            for output_file in run_info["slurm_run_outputs"]:
+                try:
+                    os.remove(output_file)
+                except FileNotFoundError:
+                    continue
+
+    if job_status_group == "PARTIALLY COMPLETED":
+        # TODO path
+        array_filename = f"array-job-info-{slurm_job_id}.out"
+        yield get_status_dict(
+            "finish",
+            status="ok",
+            message=f"Some array jobs failed / cancelled."
+            f" Job breakdown is wrriten to {array_filename}.",
+        )
+        with open(array_filename, "w") as f:
+            f.write(status_text)
+        outputs_to_save.append(array_filename)
 
     # get the number of incomplete jobs and subtract one
     incomplete_job_number = extract_incomplete_jobs(ds)
     run_info["incomplete_job_number"] = incomplete_job_number - 1
 
     # expand the wildcards
-    # TODO do this in a better way with GlobbedPaths
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
-    # TODO should the globbed outputs only be the slurm outputs in this case?
-    if job_status in ["CANCELLED", "FAILED"]:
-        globbed_outputs.extend(run_info["slurm_run_outputs"])
 
     # update the run info with the new outputs
     run_info["outputs"] = globbed_outputs
@@ -429,9 +454,8 @@ def finish_cmd(
 {}
 ^^^ Do not change lines above ^^^
         """
-    job_status = job_status.capitalize()
-    message = f"Processed batch job {slurm_job_id}: {job_status}"
-
+    job_status_group = job_status_group.capitalize()
+    message = f"Processed batch job {slurm_job_id}: {job_status_group}"
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
@@ -525,24 +549,35 @@ def get_job_status(job_id):
         # -n: no header
         # -X: no step info
         # -j: specify job ID
-        # -o State: only output the state
-        # --parsable2: machine-friendly output format
+        # -o JobID,State: output job ID and state columns
+        # --parsable2: machine-friendly output format with | delimiter
         result = subprocess.run(
-            ["sacct", "-n", "-X", "-j", job_id, "-o", "State", "--parsable2"],
+            ["sacct", "-n", "-X", "-j", job_id, "-o", "JobID,State", "--parsable2"],
             capture_output=True,
             text=True,
             check=True,
         )
-
-        # Get the state from the output
-        state = result.stdout.strip()
-
+        # Get the output lines
+        output = result.stdout.strip()
         # If there's no output, the job doesn't exist
-        if not state:
+        if not output:
             raise ValueError(f"Job {job_id} not found")
 
-        # Return the state as is
-        return state
+        # Create dictionary of job_id: state pairs
+        job_states = {}
+        for line in output.splitlines():
+            job_id, state = line.split("|")
+            if "CANCELLED" in state:
+                state = "CANCELLED"
+            job_states[job_id] = state
+
+        unique_statuses = set(job_states.values())
+        if len(unique_statuses) == 1:
+            job_status_group = unique_statuses.pop()  # Get the single status value
+        else:
+            job_status_group = "PARTIALLY COMPLETED"
+
+        return job_states, job_status_group
 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
