@@ -155,7 +155,11 @@ def get_schedule_info(dset, message, allow_reschedule=True):
         raise ValueError(
             "cannot rerun command, command specification is not valid JSON"
         ) from e
-    if not isinstance(runinfo, (list, dict)):
+    try:
+        record_file = runinfo["record_file"]
+    except KeyError:
+        record_file = None
+    if not isinstance(runinfo, (list, dict)) or record_file:
         # this is a run record ID -> load the beast
         record_dir = dset.config.get(
             "datalad.run.record-directory", default=op.join(".datalad", "runinfo")

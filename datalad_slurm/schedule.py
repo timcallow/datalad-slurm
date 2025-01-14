@@ -408,7 +408,7 @@ def _execute_slurm_command(command, pwd):
     return cmd_exitcode or 0, exc, job_id
 
 
-def _create_record(run_info, sidecar_flag, ds):
+def _create_record(run_info, sidecar_flag, ds, run_info_to_file=False):
     """
     Returns
     -------
@@ -427,7 +427,7 @@ def _create_record(run_info, sidecar_flag, ds):
 
     record_id = None
     record_path = None
-    if use_sidecar:
+    if use_sidecar or run_info_to_file:
         # record ID is hash of record itself
         from hashlib import md5
 
@@ -441,8 +441,8 @@ def _create_record(run_info, sidecar_flag, ds):
             # despite offset cost
             # wrap in list -- there is just one record
             dump2stream([run_info], record_path, compressed=True)
-    return record_id or record, record_path
-
+            
+    return record or record_id, record_path
 
 def run_command(
     cmd,
@@ -721,7 +721,7 @@ def run_command(
                 ).format(output_conflict),
             )
             return
-    
+
     # TODO what happens in case of inject??
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
@@ -748,10 +748,26 @@ def run_command(
             # add the slurm outputs and environment files
             # these are not captured in the initial globbing
             run_info["outputs"].extend(slurm_outputs)
+            
+    run_info_to_file = False
+    max_output_len = ds.config.get("datalad.schedule.max-output-len", default=20)
+    if len(run_info["outputs"])>max_output_len:
+        run_info_to_file=True
+
+    if run_info_to_file:
+        run_info["outputs"] = run_info["outputs"][:max_output_len]
+        run_info["slurm_run_outputs"] = run_info["slurm_run_outputs"][:max_output_len]
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
-    record, record_path = _create_record(run_info, sidecar, ds)
+    record, record_path = _create_record(run_info, sidecar, ds, run_info_to_file=run_info_to_file)
+
+    if run_info_to_file:
+        run_info["record_file"] = str(record_path)
+        record = json.dumps(run_info, indent=1, sort_keys=True, ensure_ascii=False)
+
+    if not sidecar:
+        record_path = None
 
     # abbreviate version of the command for illustrative purposes
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
@@ -783,6 +799,10 @@ def run_command(
         slurm_id_old = rerun_info["slurm_job_id"]
         message += f"\n\nRe-submission of job {slurm_id_old}."
 
+    if run_info_to_file:
+        message += f"\nPrinted outputs truncated to {max_output_len}."
+        message += f"\nComplete run info saved to {run_info['record_file']}."
+    
     msg = msg.format(
         message if message is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record,
