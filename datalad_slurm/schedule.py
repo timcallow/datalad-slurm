@@ -564,7 +564,7 @@ def run_command(
             )
             return
     
-    if not allow_wildcard_outputs and outputs:
+    if not rerun_info and not allow_wildcard_outputs and outputs:
         wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
         if any(char in output for char in wildcard_list for output in outputs):
             yield get_status_dict(
@@ -939,44 +939,58 @@ def get_slurm_output_files(job_id):
 
     # Parse output to find StdOut and StdErr
     parsed_data = parse_slurm_output(result.stdout)
-    stdout_path = parsed_data.get("StdOut")
-    stderr_path = parsed_data.get("StdErr")
-
-    if not stdout_path or not stderr_path:
-        raise ValueError("Could not find StdOut or StdErr paths in scontrol output")
-
-    cwd = Path.cwd()
-    stdout_path = Path(stdout_path)
-    stderr_path = Path(stderr_path)
-
-    if not stdout_path or not stderr_path:
-        raise ValueError("Could not find StdOut or StdErr paths in scontrol output")
-
-    # Get current working directory and convert to Path object
-    cwd = Path.cwd()
-
-    # Convert output paths to Path objects
-    stdout_path = Path(stdout_path)
-    stderr_path = Path(stderr_path)
-
-    # Write parsed data to JSON file
-    slurm_env_file = stdout_path.parent / f"slurm-job-{job_id}.env.json"
-    with open(slurm_env_file, "w") as f:
-        json.dump(parsed_data, f, indent=2)
-
-    # Get relative paths
-    try:
-        rel_stdout = os.path.relpath(stdout_path, cwd)
-        rel_stderr = os.path.relpath(stderr_path, cwd)
-        rel_slurmenv = os.path.relpath(slurm_env_file, cwd)
-    except ValueError as e:
-        raise ValueError(f"Cannot compute relative path: {e}")
-
-    # If paths are the same, return just one
-    if rel_stdout == rel_stderr:
-        return [rel_stdout], rel_slurmenv
+    if "ArrayJobId" in parsed_data:
+        array_task_id = parsed_data["ArrayTaskId"]
+        slurm_job_ids = generate_array_job_names(str(job_id),str(array_task_id))
     else:
-        return [rel_stdout, rel_stderr], rel_slurmenv
+        slurm_job_ids = [job_id]
+        
+    slurm_out_paths = []
+    for i, slurm_job_id in enumerate(slurm_job_ids):
+        # Run scontrol command and get output
+        try:
+            result = subprocess.run(
+                ["scontrol", "show", "job", str(slurm_job_id)],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise subprocess.CalledProcessError(
+                e.returncode, e.cmd, f"Failed to get job information: {e.output}"
+            )
+
+        # Parse output to find StdOut and StdErr
+        parsed_data = parse_slurm_output(result.stdout)
+
+        stdout_path = parsed_data.get("StdOut")
+        stderr_path = parsed_data.get("StdErr")
+
+        if not stdout_path or not stderr_path:
+            raise ValueError("Could not find StdOut or StdErr paths in scontrol output")
+        cwd = Path.cwd()
+        stdout_path = Path(stdout_path)
+        stderr_path = Path(stderr_path)
+            
+        if i==0:
+            # Write parsed data to JSON file
+            slurm_env_file = stdout_path.parent / f"slurm-job-{job_id}.env.json"
+            with open(slurm_env_file, "w") as f:
+                json.dump(parsed_data, f, indent=2)
+            rel_slurmenv = os.path.relpath(slurm_env_file, cwd)
+
+        # Get relative paths
+        try:
+            rel_stdout = os.path.relpath(stdout_path, cwd)
+            rel_stderr = os.path.relpath(stderr_path, cwd)
+        except ValueError as e:
+            raise ValueError(f"Cannot compute relative path: {e}")
+            
+        slurm_out_paths.append(rel_stdout)
+        if rel_stdout!=rel_stderr:
+            slurm_out_paths.append(rel_stderr)
+
+    return slurm_out_paths, rel_slurmenv
 
 
 def parse_slurm_output(output):
@@ -994,3 +1008,49 @@ def parse_slurm_output(output):
                 if key not in excluded_keys:
                     result[key] = value
     return result
+
+def generate_array_job_names(job_id, job_task_id):
+    """
+    Generate individual job names for a Slurm array job.
+    
+    Args:
+        job_id (str): The base Slurm job ID
+        job_task_id (str): The array specification (e.g., "1-5", "1,3,5", "1-10:2")
+    
+    Returns:
+        list[str]: List of job names in the format "job_id_array_index"
+    
+    Examples:
+        >>> generate_array_job_names("12345", "1-3")
+        ['12345_1', '12345_2', '12345_3']
+        
+        >>> generate_array_job_names("12345", "1,3,5")
+        ['12345_1', '12345_3', '12345_5']
+        
+        >>> generate_array_job_names("12345", "1-5:2")
+        ['12345_1', '12345_3', '12345_5']
+    """
+    job_names = []
+    
+    # Remove any % limitations if present
+    if '%' in job_task_id:
+        job_task_id = job_task_id.split('%')[0]
+    
+    # Split by comma to handle multiple ranges
+    ranges = job_task_id.split(',')
+    
+    for range_spec in ranges:
+        # Handle individual numbers
+        if '-' not in range_spec:
+            job_names.append(f"{job_id}_{range_spec}")
+            continue
+            
+        # Handle ranges with optional step
+        range_parts = range_spec.split(':')
+        start, end = map(int, range_parts[0].split('-'))
+        step = int(range_parts[1]) if len(range_parts) > 1 else 1
+        
+        for i in range(start, end + 1, step):
+            job_names.append(f"{job_id}_{i}")
+    
+    return job_names
