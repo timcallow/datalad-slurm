@@ -16,16 +16,55 @@ All tests will create their own temporary datalad repo inside `<dir>` and work i
 
 The `slurm_test*.template.sh` files need to be modified to match the local slurm environment.
 
-## Test 01
+## Test 01 (2 versions)
 
 Test creating many job dirs with job scripts in it, then `datalad schedule` and run all jobs, wait until all run through, then `datalad finish` all jobs.
 
+The second version uses a wildcard in the dirnames.
+
 This should run without any errors.
 
-## Test 02
+## Test 02 (2 versions)
 
 Test creating many job dirs with job scripts in it like in Test 01. However, they have conflicting output directories so datalad should refuse to schedule some of them.
+
+The second version uses a wildcard in the dirnames.
 
 This should produce some errors by datalad:
 * The first bunch of jobs should run fine including a clean `datalad finish`
 * The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+
+## Test 03
+
+Test scheduling many job in the same dir with disjoint output filesand wait until all run through, then `datalad finish` all jobs.
+
+This should run without any errors.
+
+## Test 04
+
+Like test 03 with disjoint output files in the same output dir. But then try to schedule conflicting jobs with the same output files again.
+
+This should produce some errors by datalad:
+* The first bunch of jobs should run fine including a clean `datalad finish`
+* The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+
+## Test 05
+
+Test how datalad 'schedule' and 'finish' handle failed jobs
+* create some job dirs and job scripts and 'commit' them
+* then 'datalad schedule' all jobs from their job dirs
+* some of the jobs will fail (also feel free to `scancel some`)
+* wait until all of them are finished, then run 'datalad finish'
+* check if the remaining jobs will be shown correctly
+* check if the remaining jobs are correctly closed
+
+Expected results: should run without any errors
+
+## Test 06
+
+Test with array jobs, that is one main job which gets scheduled but many jobs are created out of it by Slurm.
+
+* `datalad schedule` and `finish` will only deal with the main jobs and only those will be recorded in the git log.
+* However, there will be multiple `slurm*.out` files and `slurm-job-*.env.json` files that need to be tracked as outputs of such a job.
+
+Expected results: should run without any errors
