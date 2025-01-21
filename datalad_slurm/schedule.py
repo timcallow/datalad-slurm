@@ -867,51 +867,46 @@ def run_command(
 
 def check_output_conflict(dset, outputs):
     """
-    Check if the outputs from the current scheduled job conflict with other unfinished jobs.
+    Check for conflicts between provided outputs and existing outputs in the database.
+    
+    Args:
+        dset: Dataset object containing repository information
+        outputs: List of strings representing output paths to check
+        
+    Returns:
+        list: List of slurm_job_ids that have conflicting outputs. Empty list if no conflicts
+              or if database error occurs.
     """
+    # Connect to database
     ds_repo = dset.repo
-    # get branch
-    rev_branch = (
-        ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    )
-    revrange = rev_branch
-
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
-    )
-    if not rev_lines:
-        return
-
-    conflict_commits = []
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
-        full_msg = ds_repo.format_commit("%B", rev)
-        try:
-            msg, info = get_schedule_info(dset, full_msg)
-            if msg and info:
-                # then we have a hit on the schedule
-                # check if a corresponding finish command exists
-                job_finished = check_finish_exists(dset, rev, rev_branch)
-                if not job_finished:
-                    # check if there is any overlap between this job's outputs,
-                    # and the outputs from the other unfinished job
-                    # expand the outputs into a single list - why is this not default??
-                    commit_outputs = info["outputs"]
-                    output_conflict = any(
-                        output in outputs for output in commit_outputs
-                    )
-                    if output_conflict:
-                        conflict_commits.append(rev[:7])
-        except ValueError as exc:
-            # Recast the error so the message includes the revision.
-            raise ValueError("Error on {}'s message".format(rev)) from exc
-
-    return conflict_commits
+    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+    db_name = f"{dset.id}_{branch}.db"
+    db_path = dset.pathobj / ".git" / db_name
+    
+    conflicting_jobs = []
+    
+    try:
+        with sqlite3.connect(db_path) as con:
+            cur = con.cursor()
+            
+            # Get all existing outputs from database
+            cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
+            existing_records = cur.fetchall()
+            
+            # Check each record for conflicts
+            for job_id, json_outputs in existing_records:
+                try:
+                    existing_outputs = json.loads(json_outputs)
+                    if set(outputs) & set(existing_outputs):
+                        conflicting_jobs.append(job_id)
+                except json.JSONDecodeError:
+                    continue
+                
+    except sqlite3.Error:
+        print("Error accessing database")
+        return []
+        
+    return conflicting_jobs
 
 
 def get_slurm_output_files(job_id):
