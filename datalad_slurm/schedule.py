@@ -22,6 +22,7 @@ from argparse import REMAINDER
 from pathlib import Path
 from tempfile import mkdtemp
 import glob
+import sqlite3
 
 import datalad
 import datalad.support.ansi_colors as ac
@@ -809,6 +810,10 @@ def run_command(
     else:
         status = "ok"
 
+    # add the entry to the database
+    if status == "ok":
+        status = add_to_database(ds, run_info)
+
     run_result = get_status_dict(
         "run",
         ds=ds,
@@ -1054,3 +1059,46 @@ def generate_array_job_names(job_id, job_task_id):
             job_names.append(f"{job_id}_{i}")
     
     return job_names
+
+
+def add_to_database(dset, run_info):
+    """Add a `datalad schedule` command to an sqlite database."""
+    # get the branch
+    ds_repo = dset.repo
+    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+
+    # connect to the database (creates if doesn't yet exist)
+    # sets up in the root of the dataset
+    db_name = f"{dset.id}_{branch}.db"
+    db_path = dset.pathobj / ".git" /  db_name
+    con = sqlite3.connect(db_path)
+
+    cur = con.cursor()
+    
+    # create an empty table if it doesn't exist
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS open_jobs (
+    slurm_job_id INTEGER,
+    outputs TEXT,
+    CONSTRAINT validate_json CHECK (json_valid(outputs))
+    )
+    """)
+
+    # convert the outputs to json
+    outputs_json = json.dumps(run_info["outputs"])
+
+    # add the most recent schedule command to the table
+    cur.execute("""
+    INSERT INTO open_jobs (slurm_job_id, outputs) VALUES (?, ?)
+    """,
+    (run_info["slurm_job_id"], outputs_json))
+    
+    # save and close
+    con.commit()
+    con.close()
+
+    return "ok"
+    
+
+    
+    

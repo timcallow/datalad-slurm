@@ -13,6 +13,7 @@ from argparse import REMAINDER
 from pathlib import Path
 from tempfile import mkdtemp
 import glob
+import sqlite3
 
 import datalad
 import datalad.support.ansi_colors as ac
@@ -467,6 +468,9 @@ def finish_cmd(
         '"{}"'.format(record) if record_path else record,
     )
 
+    # remove the job
+    status = remove_from_database(ds, run_info)
+
     if do_save:
         with chpwd(pwd):
             for r in Save.__call__(
@@ -581,3 +585,23 @@ def get_job_status(job_id):
 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
+
+def remove_from_database(dset, run_info):
+    """Remove a job from the database based on its slurm_job_id."""
+    ds_repo = dset.repo
+    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+    
+    db_name = f"{dset.id}_{branch}.db"
+    db_path = dset.pathobj / ".git" / db_name
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    
+    # Remove the row matching the slurm_job_id
+    cur.execute("""
+    DELETE FROM open_jobs 
+    WHERE slurm_job_id = ?
+    """, (run_info["slurm_job_id"],))
+    
+    con.commit()
+    con.close()
+    return "ok"
