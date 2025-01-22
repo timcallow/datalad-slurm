@@ -810,10 +810,6 @@ def run_command(
     else:
         status = "ok"
 
-    # add the entry to the database
-    if status == "ok":
-        status = add_to_database(ds, run_info)
-
     run_result = get_status_dict(
         "run",
         ds=ds,
@@ -849,6 +845,7 @@ def run_command(
 
     if do_save:
         with chpwd(pwd):
+            has_results = False
             for r in Save.__call__(
                 dataset=ds_path,
                 path=outputs_to_save,
@@ -862,7 +859,12 @@ def run_command(
                 result_renderer="disabled",
                 on_failure="ignore",
             ):
+                has_results = True
                 yield r
+            if has_results:
+                add_to_database(ds, run_info)
+
+    
 
 
 def check_output_conflict(dset, outputs):
@@ -1073,6 +1075,7 @@ def add_to_database(dset, run_info):
     # create an empty table if it doesn't exist
     cur.execute("""
     CREATE TABLE IF NOT EXISTS open_jobs (
+    commit_id TEXT,
     slurm_job_id INTEGER,
     outputs TEXT,
     CONSTRAINT validate_json CHECK (json_valid(outputs))
@@ -1082,11 +1085,14 @@ def add_to_database(dset, run_info):
     # convert the outputs to json
     outputs_json = json.dumps(run_info["outputs"])
 
+    # get the most recent commit hash
+    commit_id = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+
     # add the most recent schedule command to the table
     cur.execute("""
-    INSERT INTO open_jobs (slurm_job_id, outputs) VALUES (?, ?)
+    INSERT INTO open_jobs (commit_id, slurm_job_id, outputs) VALUES (?, ?, ?)
     """,
-    (run_info["slurm_job_id"], outputs_json))
+    (commit_id, run_info["slurm_job_id"], outputs_json))
     
     # save and close
     con.commit()

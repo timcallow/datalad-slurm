@@ -8,6 +8,7 @@ import sys
 from copy import copy
 from functools import partial
 from itertools import dropwhile
+import sqlite3
 
 from datalad.consts import PRE_INIT_COMMIT_SHA
 from datalad.core.local.run import (
@@ -196,42 +197,21 @@ def get_slurm_job_id(dset, revision, allow_reschedule=True):
     return info["slurm_job_id"]
 
 def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
-    # first get the original slurm job id
-    slurm_job_id = get_slurm_job_id(dset, revision, allow_reschedule=allow_reschedule)
-    
-    if not slurm_job_id:
-        return 0 # return a special exit code to distinguish errors
-
     # now check the finish exists
-    revrange = "{}..{}".format(revision, rev_branch)
-
     ds_repo = dset.repo
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
-    )
-    if not rev_lines:
-        return
 
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
-        full_msg = ds_repo.format_commit("%B", rev)
-        try:
-            #msg, info = get_run_info(dset, full_msg, runtype="FINISH")
-            msg, info = get_finish_info(dset, full_msg)
-            if msg and info:
-                if info["slurm_job_id"] == slurm_job_id:
-                    return True
-        except ValueError as exc:
-            # Recast the error so the message includes the revision.
-            raise ValueError("Error on {}'s message".format(rev)) from exc
-
-    return
-
+    db_name = f"{dset.id}_{rev_branch}.db"
+    db_path = dset.pathobj / ".git" / db_name
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    
+    # check the open jobs for the commit
+    cur.execute("SELECT 1 FROM open_jobs WHERE commit_id LIKE ?", (revision + "%",))
+    finish_exists = cur.fetchone() is None
+    
+    con.close()
+    return finish_exists
+    
 def extract_incomplete_jobs(dset):
     """
     Get the number of incomplete jobs, (re)-scheduled jobs with no finish command.
