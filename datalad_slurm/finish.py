@@ -65,7 +65,7 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-from .common import check_finish_exists, get_schedule_info, extract_incomplete_jobs
+from .common import check_finish_exists, get_schedule_info
 
 from datalad.core.local.run import _create_record, get_command_pwds
 
@@ -396,10 +396,6 @@ def finish_cmd(
         with open(array_filename, "w") as f:
             f.write(status_text)
         outputs_to_save.append(array_filename)
-
-    # get the number of incomplete jobs and subtract one
-    incomplete_job_number = extract_incomplete_jobs(ds)
-    run_info["incomplete_job_number"] = incomplete_job_number - 1
 
     # expand the wildcards
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths

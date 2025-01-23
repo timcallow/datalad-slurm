@@ -86,7 +86,7 @@ from datalad.core.local.run import (
     _get_substitutions,
 )
 
-from .common import get_schedule_info, check_finish_exists, extract_incomplete_jobs
+from .common import get_schedule_info, check_finish_exists
 
 lgr = logging.getLogger("datalad.slurm.schedule")
 
@@ -703,10 +703,6 @@ def run_command(
             ),
         )
         return
-
-    # extract the incomplete job number
-    incomplete_job_number = extract_incomplete_jobs(ds)
-    run_info["incomplete_job_number"] = incomplete_job_number + 1
 
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
