@@ -38,7 +38,7 @@ datalad create -c text2git $TESTDIR
 cp $B/slurm_test01.template.sh $TESTDIR/slurm.template.sh
 cd $TESTDIR
 
-TARGETS=`seq 1 1000`
+TARGETS=`seq 1 500`
 
 for i in $TARGETS ; do
 
@@ -58,14 +58,12 @@ for i in $TARGETS ; do
     DIR="test_01_output_dir_"$i
 
     cd $DIR
-    /usr/bin/time -f "%E real" -o ../timing_schedule.txt -a datalad schedule -o $PWD sbatch slurm.sh
+    /usr/bin/time -f "%E" -o ../timing_schedule.txt -a datalad schedule -o $PWD sbatch slurm.sh
     cd ..
-
-    sleep 1s
 
     ## this produces an error sometimes
     ## [ERROR  ] Error on 73ff5ea92ef661478bd9d54641e7b3873b66a47c's message -caused by- Job 9283024 not found 
-    #/usr/bin/time -f "%E real" -o timing_finish-list.txt -a datalad finish --list-open-jobs
+    /usr/bin/time -f "%E" -o timing_finish-list.txt -a datalad finish --list-open-jobs
 
 done
 
@@ -77,7 +75,7 @@ done
 
 echo "done waiting"
 
-/usr/bin/time -f "%E real" -o timing_finish-list.txt -a datalad finish --list-open-jobs
+## /usr/bin/time -f "%E real" -o timing_finish-list.txt -a datalad finish --list-open-jobs
 
 echo "finishing completed jobs:"
 /usr/bin/time -f "%E real" -o timing_finish.txt -a datalad finish
