@@ -175,6 +175,8 @@ def get_schedule_info(dset, message, allow_reschedule=True):
     return rec_msg.rstrip(), runinfo
 
 def get_slurm_job_id(dset, revision, allow_reschedule=True):
+    """Get the slurm job id for a given commit."""
+    # extract the commit information
     revrange = "{rev}^..{rev}".format(rev=revision)
     ds_repo = dset.repo
     rev_line = ds_repo.get_revisions(
@@ -197,17 +199,35 @@ def get_slurm_job_id(dset, revision, allow_reschedule=True):
     return info["slurm_job_id"]
 
 def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
-    # now check the finish exists
-    ds_repo = dset.repo
+    """Check if a job is open or already finished."""
+    # connect to the database
+    con, cur = connect_to_database(dset)
+    if con is None or cur is None:
+        return None, None
 
-    db_name = f"{dset.id}_{rev_branch}.db"
-    db_path = dset.pathobj / ".git" / db_name
-    con = sqlite3.connect(db_path)
-    cur = con.cursor()
-    
     # check the open jobs for the commit
     cur.execute("SELECT 1 FROM open_jobs WHERE commit_id LIKE ?", (revision + "%",))
     finish_exists = cur.fetchone() is None
-    
     con.close()
-    return finish_exists
+
+    return finish_exists, True
+
+def connect_to_database(dset, row_factory=False):
+    """Connect to sqlite3 database and return the connection and cursor."""
+    # define the database path from the dataset and branch
+    ds_repo = dset.repo
+    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+    db_name = f"{dset.id}_{branch}.db"
+    db_path = dset.pathobj / ".git" / db_name
+    
+    # try to connect to the database
+    try:
+        con = sqlite3.connect(db_path)
+        if row_factory:
+            con.row_factory = lambda cursor, row: row[0]
+        cur = con.cursor()
+    except sqlite3.Error:
+        return None, None
+    
+    return con, cur
+            

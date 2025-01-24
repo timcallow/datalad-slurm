@@ -65,7 +65,7 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-from .common import check_finish_exists, get_schedule_info
+from .common import get_schedule_info, connect_to_database
 
 from datalad.core.local.run import _create_record, get_command_pwds
 
@@ -82,17 +82,6 @@ class Finish(Interface):
             nargs="?",
             doc=""" `commit`. Finishes the slurm job from the specified commit.""",
             default=None,
-            constraints=EnsureStr() | EnsureNone(),
-        ),
-        since=Parameter(
-            args=("--since",),
-            doc="""If `since` is a commit-ish, the commands from all commits
-            that are reachable from `revision` but not `since` will be
-            re-executed (in other words, the commands in :command:`git log
-            SINCE..REVISION`). If SINCE is an empty string, it is set to the
-            parent of the first commit that contains a recorded command (i.e.,
-            all commands in :command:`git log REVISION` will be
-            re-executed).""",
             constraints=EnsureStr() | EnsureNone(),
         ),
         branch=Parameter(
@@ -178,7 +167,6 @@ class Finish(Interface):
     def __call__(
         commit=None,
         *,
-        since=None,
         dataset=None,
         message=None,
         outputs=None,
@@ -197,9 +185,18 @@ class Finish(Interface):
             commit_list = [commit]
             slurm_job_id_list = []
         else:
-            commit_list, slurm_job_id_list = get_scheduled_commits(
-                since, ds, branch
+            commit_list, slurm_job_id_list, status_ok = get_scheduled_commits(
+                ds, branch
             )
+            if not status_ok:
+                yield get_status_dict(
+                    "finish",
+                    ds=ds,
+                    status="error",
+                    message=("Database connection cannot be established"),
+                )
+                return                                    
+
         # list the open jobs if requested
         # if a single commit was specified, nothing happens
         # TODO: code with triple list and multiple prints is a bit ugly, consider refactor
@@ -216,7 +213,6 @@ class Finish(Interface):
         for commit_element in commit_list:
             for r in finish_cmd(
                 commit_element,
-                since=since,
                 dataset=dataset,
                 message=message,
                 outputs=outputs,
@@ -229,17 +225,12 @@ class Finish(Interface):
                 yield r
 
 
-def get_scheduled_commits(since, dset, branch):
-    # get branch
-    ds_repo = dset.repo
-    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    
+def get_scheduled_commits(dset, branch):
+    """Return the commit ids and slurm job ids of all open jobs."""
     # connect to the database
-    db_name = f"{dset.id}_{branch}.db"
-    db_path = dset.pathobj / ".git" / db_name
-    con = sqlite3.connect(db_path)
-    con.row_factory = lambda cursor, row: row[0]
-    cur = con.cursor()
+    con, cur = connect_to_database(dset, row_factory=True)
+    if not con or not cur:
+        return None, None, None
 
     # select the commit ids into a list
     cur.execute("SELECT commit_id FROM open_jobs")
@@ -249,19 +240,10 @@ def get_scheduled_commits(since, dset, branch):
     cur.execute("SELECT slurm_job_id FROM open_jobs")
     slurm_job_ids = cur.fetchall()
 
-    if since:
-        for i, commit_id in enumerate(commit_ids):
-            if commit_id == since:
-                break
-        commit_ids = commit_ids[:i]
-        slurm_job_ids = slurm_job_ids[:i]
-
-        
-    return commit_ids, slurm_job_ids
+    return commit_ids, slurm_job_ids, True
 
 def finish_cmd(
     commit,
-    since=None,
     dataset=None,
     message=None,
     outputs=None,
@@ -554,13 +536,7 @@ def get_job_status(job_id):
 
 def remove_from_database(dset, run_info):
     """Remove a job from the database based on its slurm_job_id."""
-    ds_repo = dset.repo
-    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    
-    db_name = f"{dset.id}_{branch}.db"
-    db_path = dset.pathobj / ".git" / db_name
-    con = sqlite3.connect(db_path)
-    cur = con.cursor()
+    con, cur = connect_to_database(dset)
     
     # Remove the row matching the slurm_job_id
     cur.execute("""

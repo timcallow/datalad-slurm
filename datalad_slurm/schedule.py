@@ -86,7 +86,7 @@ from datalad.core.local.run import (
     _get_substitutions,
 )
 
-from .common import get_schedule_info, check_finish_exists
+from .common import get_schedule_info, check_finish_exists, connect_to_database
 
 lgr = logging.getLogger("datalad.slurm.schedule")
 
@@ -706,7 +706,15 @@ def run_command(
 
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
-        output_conflict = check_output_conflict(ds, run_info["outputs"])
+        output_conflict, status_ok = check_output_conflict(ds, run_info["outputs"])
+        if not status_ok:
+            yield get_status_dict(
+                "schedule",
+                ds=ds,
+                status="error",
+                message=("Database connection cannot be established"),
+            )
+            return
         if output_conflict:
             yield get_status_dict(
                 "schedule",
@@ -858,10 +866,15 @@ def run_command(
                 has_results = True
                 yield r
             if has_results:
-                add_to_database(ds, run_info)
-
-    
-
+                status_ok = add_to_database(ds, run_info)
+                if not status_ok:
+                    yield get_status_dict(
+                        "schedule",
+                        ds=ds,
+                        status="error",
+                        message=("Database connection cannot be established"),
+                    )
+                    return                    
 
 def check_output_conflict(dset, outputs):
     """
@@ -876,35 +889,25 @@ def check_output_conflict(dset, outputs):
               or if database error occurs.
     """
     # Connect to database
-    ds_repo = dset.repo
-    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    db_name = f"{dset.id}_{branch}.db"
-    db_path = dset.pathobj / ".git" / db_name
+    con, cur = connect_to_database(dset)
+    if not con or not cur:
+        return None, None
+
+    # Get all existing outputs from database
+    cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
+    existing_records = cur.fetchall()
     
+    # Check each record for conflicts
     conflicting_jobs = []
-    
-    try:
-        with sqlite3.connect(db_path) as con:
-            cur = con.cursor()
-            
-            # Get all existing outputs from database
-            cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
-            existing_records = cur.fetchall()
-            
-            # Check each record for conflicts
-            for job_id, json_outputs in existing_records:
-                try:
-                    existing_outputs = json.loads(json_outputs)
-                    if set(outputs) & set(existing_outputs):
-                        conflicting_jobs.append(job_id)
-                except json.JSONDecodeError:
-                    continue
-                
-    except sqlite3.Error:
-        print("Error accessing database")
-        return []
+    for job_id, json_outputs in existing_records:
+        try:
+            existing_outputs = json.loads(json_outputs)
+            if set(outputs) & set(existing_outputs):
+                conflicting_jobs.append(job_id)
+        except json.JSONDecodeError:
+            continue
         
-    return conflicting_jobs
+    return conflicting_jobs, True
 
 
 def get_slurm_output_files(job_id):
@@ -1056,17 +1059,9 @@ def generate_array_job_names(job_id, job_task_id):
 
 def add_to_database(dset, run_info):
     """Add a `datalad schedule` command to an sqlite database."""
-    # get the branch
-    ds_repo = dset.repo
-    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-
-    # connect to the database (creates if doesn't yet exist)
-    # sets up in the root of the dataset
-    db_name = f"{dset.id}_{branch}.db"
-    db_path = dset.pathobj / ".git" /  db_name
-    con = sqlite3.connect(db_path)
-
-    cur = con.cursor()
+    con, cur = connect_to_database(dset)
+    if not cur or not con:
+        return None
     
     # create an empty table if it doesn't exist
     cur.execute("""
@@ -1094,7 +1089,7 @@ def add_to_database(dset, run_info):
     con.commit()
     con.close()
 
-    return "ok"
+    return True
     
 
     

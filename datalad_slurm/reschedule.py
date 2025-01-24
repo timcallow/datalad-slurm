@@ -315,9 +315,17 @@ class Reschedule(Interface):
         # get the revrange to check for datalad finish corresponding command
         # don't allow reschedule because we only check for the original job
         if not since:
-            job_finished = check_finish_exists(
+            job_finished, status_ok = check_finish_exists(
                 ds, revision, rev_branch
             )
+            if not status_ok:
+                yield get_status_dict(
+                    "finish",
+                    ds=ds,
+                    status="error",
+                    message=("Database connection cannot be established"),
+                )
+                return                                    
             if not job_finished:
                 # now check if job is a scheduled job
                 slurm_job_id = get_slurm_job_id(ds, revision, allow_reschedule=False)
@@ -453,9 +461,17 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message, rev_branch):
                 skip_or_pick(hexsha, res, "was ran from a different dataset")
                 res["status"] = "impossible"
             else:
-                job_finished = check_finish_exists(
+                job_finished, status_ok = check_finish_exists(
                     dset, hexsha, rev_branch
                 )
+                if not status_ok:
+                    yield get_status_dict(
+                        "finish",
+                        ds=ds,
+                        status="error",
+                        message=("Database connection cannot be established"),
+                    )
+                    return                                    
                 if not job_finished:
                     slurm_job_id = get_slurm_job_id(dset, revision, allow_reschedule=False)
                     if not slurm_job_id:
