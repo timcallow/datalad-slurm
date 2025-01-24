@@ -13,6 +13,7 @@ from argparse import REMAINDER
 from pathlib import Path
 from tempfile import mkdtemp
 import glob
+import sqlite3
 
 import datalad
 import datalad.support.ansi_colors as ac
@@ -64,7 +65,7 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-from .common import check_finish_exists, get_schedule_info, extract_incomplete_jobs
+from .common import get_schedule_info, connect_to_database
 
 from datalad.core.local.run import _create_record, get_command_pwds
 
@@ -81,17 +82,6 @@ class Finish(Interface):
             nargs="?",
             doc=""" `commit`. Finishes the slurm job from the specified commit.""",
             default=None,
-            constraints=EnsureStr() | EnsureNone(),
-        ),
-        since=Parameter(
-            args=("--since",),
-            doc="""If `since` is a commit-ish, the commands from all commits
-            that are reachable from `revision` but not `since` will be
-            re-executed (in other words, the commands in :command:`git log
-            SINCE..REVISION`). If SINCE is an empty string, it is set to the
-            parent of the first commit that contains a recorded command (i.e.,
-            all commands in :command:`git log REVISION` will be
-            re-executed).""",
             constraints=EnsureStr() | EnsureNone(),
         ),
         branch=Parameter(
@@ -177,7 +167,6 @@ class Finish(Interface):
     def __call__(
         commit=None,
         *,
-        since=None,
         dataset=None,
         message=None,
         outputs=None,
@@ -192,19 +181,22 @@ class Finish(Interface):
             dataset, check_installed=True, purpose="finish a SLURM job"
         )
         ds_repo = ds.repo
-        if since is None:
-            if commit:
-                commit_list = [commit]
-                slurm_job_id_list = []
-                job_status_list = []
-            else:
-                commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits(
-                    "", ds, branch
-                )
+        if commit:
+            commit_list = [commit]
+            slurm_job_id_list = []
         else:
-            commit_list, slurm_job_id_list, job_status_list = get_scheduled_commits(
-                since, ds, branch
+            commit_list, slurm_job_id_list, status_ok = get_scheduled_commits(
+                ds, branch
             )
+            if not status_ok:
+                yield get_status_dict(
+                    "finish",
+                    ds=ds,
+                    status="error",
+                    message=("Database connection cannot be established"),
+                )
+                return                                    
+
         # list the open jobs if requested
         # if a single commit was specified, nothing happens
         # TODO: code with triple list and multiple prints is a bit ugly, consider refactor
@@ -213,14 +205,14 @@ class Finish(Interface):
                 print("The following jobs are open: \n")
                 print(f"{'commit-id':<10} {'slurm-job-id':<14} {'slurm-job-status'}")
                 for i, commit_element in enumerate(commit_list):
+                    job_status = get_job_status(slurm_job_id_list[i])[1]
                     print(
-                        f"{commit_element[:7]:<10} {slurm_job_id_list[i]:<14} {job_status_list[i]}"
+                        f"{commit_element[:7]:<10} {slurm_job_id_list[i]:<14} {job_status}"
                     )
             return
         for commit_element in commit_list:
             for r in finish_cmd(
                 commit_element,
-                since=since,
                 dataset=dataset,
                 message=message,
                 outputs=outputs,
@@ -233,64 +225,25 @@ class Finish(Interface):
                 yield r
 
 
-def get_scheduled_commits(since, dset, branch):
-    ds_repo = dset.repo
-    # get branch
-    rev_branch = (
-        ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    )
-    revision = rev_branch
-    if since.strip() == "":
-        revrange = revision
-    else:
-        revrange = "{}..{}".format(since, revision)
+def get_scheduled_commits(dset, branch):
+    """Return the commit ids and slurm job ids of all open jobs."""
+    # connect to the database
+    con, cur = connect_to_database(dset, row_factory=True)
+    if not con or not cur:
+        return None, None, None
 
-    rev_lines = ds_repo.get_revisions(revrange, fmt="%H %P", options=["--topo-order"])
-    if not rev_lines:
-        return
+    # select the commit ids into a list
+    cur.execute("SELECT commit_id FROM open_jobs")
+    commit_ids = cur.fetchall()
 
-    commit_list = []
-    slurm_job_id_list = []
-    job_status_list = []
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        # get the incomplete job number
-        incomplete_job_number = extract_incomplete_jobs(dset)
-        # only go as far back as the last commit with no unfinished jobs
-        if incomplete_job_number == 0:
-            break
-        full_msg = ds_repo.format_commit("%B", rev)
-        try:
-            msg, info = get_schedule_info(dset, full_msg)
-            if msg and info:
-                slurm_job_id = info["slurm_job_id"]
-                # then we have a hit on the schedule
-                # check if a corresponding finish command exists
-                job_finished = check_finish_exists(dset, rev, rev_branch)
-                if not job_finished:
-                    commit_list.append(rev)
-                    slurm_job_id_list.append(slurm_job_id)
-                    _, job_status_group = get_job_status(slurm_job_id)
-                    job_status_list.append(job_status_group)
-        except ValueError as exc:
-            # Recast the error so the message includes the revision.
-            raise ValueError("Error on {}'s message".format(rev)) from exc
+    # select the slurm job ids into a list
+    cur.execute("SELECT slurm_job_id FROM open_jobs")
+    slurm_job_ids = cur.fetchall()
 
-    # reverse the order
-    commit_list.reverse()
-    slurm_job_id_list.reverse()
-    job_status_list.reverse()
-
-    return commit_list, slurm_job_id_list, job_status_list
-
+    return commit_ids, slurm_job_ids, True
 
 def finish_cmd(
     commit,
-    since=None,
     dataset=None,
     message=None,
     outputs=None,
@@ -426,10 +379,6 @@ def finish_cmd(
             f.write(status_text)
         outputs_to_save.append(array_filename)
 
-    # get the number of incomplete jobs and subtract one
-    incomplete_job_number = extract_incomplete_jobs(ds)
-    run_info["incomplete_job_number"] = incomplete_job_number - 1
-
     # expand the wildcards
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
 
@@ -466,6 +415,9 @@ def finish_cmd(
         message if message is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record,
     )
+
+    # remove the job
+    status = remove_from_database(ds, run_info)
 
     if do_save:
         with chpwd(pwd):
@@ -581,3 +533,17 @@ def get_job_status(job_id):
 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
+
+def remove_from_database(dset, run_info):
+    """Remove a job from the database based on its slurm_job_id."""
+    con, cur = connect_to_database(dset)
+    
+    # Remove the row matching the slurm_job_id
+    cur.execute("""
+    DELETE FROM open_jobs 
+    WHERE slurm_job_id = ?
+    """, (run_info["slurm_job_id"],))
+    
+    con.commit()
+    con.close()
+    return "ok"

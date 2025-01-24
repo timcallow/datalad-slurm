@@ -75,7 +75,7 @@ from datalad.support.globbedpaths import GlobbedPaths
 # from .schedule import _execute_slurm_command
 from .schedule import run_command
 
-from .common import get_finish_info, check_finish_exists, get_schedule_info
+from .common import get_finish_info, check_finish_exists, get_schedule_info, get_slurm_job_id
 
 lgr = logging.getLogger("datalad.local.reschedule")
 
@@ -315,16 +315,28 @@ class Reschedule(Interface):
         # get the revrange to check for datalad finish corresponding command
         # don't allow reschedule because we only check for the original job
         if not since:
-            job_finished = check_finish_exists(
-                ds, revision, rev_branch, allow_reschedule=False
+            job_finished, status_ok = check_finish_exists(
+                ds, revision, rev_branch
             )
+            if not status_ok:
+                yield get_status_dict(
+                    "finish",
+                    ds=ds,
+                    status="error",
+                    message=("Database connection cannot be established"),
+                )
+                return                                    
             if not job_finished:
-                if job_finished == 0:
+                # now check if job is a scheduled job
+                slurm_job_id = get_slurm_job_id(ds, revision, allow_reschedule=False)
+                if not slurm_job_id:
+                    # no schedule found
                     err_msg = (
                         f"Commit {revision[:7]} is not a scheduled job. \n"
                         "N.B., already re-scheduled jobs cannot be re-re-scheduled."
                     )
                 else:
+                    # job was a schedule but not yet finished
                     err_msg = f"No finish found for schedule commit {revision}"
                 yield get_status_dict(
                     "run",
@@ -449,11 +461,20 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message, rev_branch):
                 skip_or_pick(hexsha, res, "was ran from a different dataset")
                 res["status"] = "impossible"
             else:
-                job_finished = check_finish_exists(
-                    dset, hexsha, rev_branch, allow_reschedule=False
+                job_finished, status_ok = check_finish_exists(
+                    dset, hexsha, rev_branch
                 )
+                if not status_ok:
+                    yield get_status_dict(
+                        "finish",
+                        ds=ds,
+                        status="error",
+                        message=("Database connection cannot be established"),
+                    )
+                    return                                    
                 if not job_finished:
-                    if job_finished == 0:
+                    slurm_job_id = get_slurm_job_id(dset, revision, allow_reschedule=False)
+                    if not slurm_job_id:
                         skip_or_pick(hexsha, res, "not a scheduled job")
                     else:
                         skip_or_pick(hexsha, res, "scheduled job must have a corresponding finish")

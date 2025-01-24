@@ -8,6 +8,7 @@ import sys
 from copy import copy
 from functools import partial
 from itertools import dropwhile
+import sqlite3
 
 from datalad.consts import PRE_INIT_COMMIT_SHA
 from datalad.core.local.run import (
@@ -174,6 +175,8 @@ def get_schedule_info(dset, message, allow_reschedule=True):
     return rec_msg.rstrip(), runinfo
 
 def get_slurm_job_id(dset, revision, allow_reschedule=True):
+    """Get the slurm job id for a given commit."""
+    # extract the commit information
     revrange = "{rev}^..{rev}".format(rev=revision)
     ds_repo = dset.repo
     rev_line = ds_repo.get_revisions(
@@ -196,77 +199,35 @@ def get_slurm_job_id(dset, revision, allow_reschedule=True):
     return info["slurm_job_id"]
 
 def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
-    # first get the original slurm job id
-    slurm_job_id = get_slurm_job_id(dset, revision, allow_reschedule=allow_reschedule)
+    """Check if a job is open or already finished."""
+    # connect to the database
+    con, cur = connect_to_database(dset)
+    if con is None or cur is None:
+        return None, None
+
+    # check the open jobs for the commit
+    cur.execute("SELECT 1 FROM open_jobs WHERE commit_id LIKE ?", (revision + "%",))
+    finish_exists = cur.fetchone() is None
+    con.close()
+
+    return finish_exists, True
+
+def connect_to_database(dset, row_factory=False):
+    """Connect to sqlite3 database and return the connection and cursor."""
+    # define the database path from the dataset and branch
+    ds_repo = dset.repo
+    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
+    db_name = f"{dset.id}_{branch}.db"
+    db_path = dset.pathobj / ".git" / db_name
     
-    if not slurm_job_id:
-        return 0 # return a special exit code to distinguish errors
-
-    # now check the finish exists
-    revrange = "{}..{}".format(revision, rev_branch)
-
-    ds_repo = dset.repo
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
-    )
-    if not rev_lines:
-        return
-
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
-        full_msg = ds_repo.format_commit("%B", rev)
-        try:
-            #msg, info = get_run_info(dset, full_msg, runtype="FINISH")
-            msg, info = get_finish_info(dset, full_msg)
-            if msg and info:
-                if info["slurm_job_id"] == slurm_job_id:
-                    return True
-        except ValueError as exc:
-            # Recast the error so the message includes the revision.
-            raise ValueError("Error on {}'s message".format(rev)) from exc
-
-    return
-
-def extract_incomplete_jobs(dset):
-    """
-    Get the number of incomplete jobs, (re)-scheduled jobs with no finish command.
-
-    Finds the most recent finish or (re)-scheduled job. If none is found, returns 0.
-    Used to make datalad finish more efficient.
-    """
-    ds_repo = dset.repo
-    revrange = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    rev_lines = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--topo-order"]
-    )
-    if not rev_lines:
-        return 0
-
-    for rev_line in rev_lines:
-        # The strip() below is necessary because, with the format above, a
-        # commit without any parent has a trailing space. (We could also use a
-        # custom `rev-list --parents ...` call to avoid this.)
-        fields = rev_line.strip().split(" ")
-        rev, parents = fields[0], fields[1:]
-        full_msg = ds_repo.format_commit("%B", rev)
-        # see if we get a hit on a finish command
-        msg, info = get_finish_info(dset, full_msg)
-        if msg and info:
-            try:
-                return info["incomplete_job_number"]
-            except KeyError:
-                return 0
-        # see if we get a hit on a (re)schedule command
-        msg, info = get_schedule_info(dset, full_msg)
-        if msg and info:
-            try:
-                return info["incomplete_job_number"]
-            except KeyError:
-                return 0
-    return 0
-
+    # try to connect to the database
+    try:
+        con = sqlite3.connect(db_path)
+        if row_factory:
+            con.row_factory = lambda cursor, row: row[0]
+        cur = con.cursor()
+    except sqlite3.Error:
+        return None, None
+    
+    return con, cur
+            
