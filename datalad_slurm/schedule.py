@@ -866,7 +866,7 @@ def run_command(
                 has_results = True
                 yield r
             if has_results:
-                status_ok = add_to_database(ds, run_info)
+                status_ok = add_to_database(ds, run_info, msg)
                 if not status_ok:
                     yield get_status_dict(
                         "schedule",
@@ -894,19 +894,21 @@ def check_output_conflict(dset, outputs):
         return None, None
 
     # Get all existing outputs from database
-    cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
-    existing_records = cur.fetchall()
-    
-    # Check each record for conflicts
-    conflicting_jobs = []
-    for job_id, json_outputs in existing_records:
-        try:
-            existing_outputs = json.loads(json_outputs)
-            if set(outputs) & set(existing_outputs):
-                conflicting_jobs.append(job_id)
-        except json.JSONDecodeError:
-            continue
-        
+    try:
+        cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
+        existing_records = cur.fetchall()
+
+        # Check each record for conflicts
+        conflicting_jobs = []
+        for job_id, json_outputs in existing_records:
+            try:
+                existing_outputs = json.loads(json_outputs)
+                if set(outputs) & set(existing_outputs):
+                    conflicting_jobs.append(job_id)
+            except json.JSONDecodeError:
+                continue
+    except sqlite3.Error:
+        conflicting_jobs = []
     return conflicting_jobs, True
 
 
@@ -1057,7 +1059,7 @@ def generate_array_job_names(job_id, job_task_id):
     return job_names
 
 
-def add_to_database(dset, run_info):
+def add_to_database(dset, run_info, message):
     """Add a `datalad schedule` command to an sqlite database."""
     con, cur = connect_to_database(dset)
     if not cur or not con:
@@ -1068,22 +1070,62 @@ def add_to_database(dset, run_info):
     CREATE TABLE IF NOT EXISTS open_jobs (
     commit_id TEXT,
     slurm_job_id INTEGER,
-    outputs TEXT,
-    CONSTRAINT validate_json CHECK (json_valid(outputs))
+    message TEXT,
+    chain TEXT CHECK (json_valid(chain)),
+    cmd TEXT,
+    dsid TEXT,
+    inputs TEXT CHECK (json_valid(inputs)),
+    extra_inputs TEXT CHECK (json_valid(extra_inputs)),
+    outputs TEXT CHECK (json_valid(outputs)),
+    slurm_outputs TEXT CHECK (json_valid(slurm_outputs)),
+    pwd TEXT
     )
     """)
 
+    # convert the inputs to json
+    inputs_json = json.dumps(run_info["inputs"])
+
+    # convert the extra inputs to json
+    extra_inputs_json = json.dumps(run_info["extra_inputs"])
+
     # convert the outputs to json
     outputs_json = json.dumps(run_info["outputs"])
+
+    # convert the slurm outputs to json
+    slurm_outputs_json = json.dumps(run_info["slurm_run_outputs"])
+
+    # convert chain to json
+    chain_json = json.dumps(run_info["chain"])
 
     # get the most recent commit hash
     commit_id = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
 
     # add the most recent schedule command to the table
     cur.execute("""
-    INSERT INTO open_jobs (commit_id, slurm_job_id, outputs) VALUES (?, ?, ?)
+    INSERT INTO open_jobs (commit_id,
+    slurm_job_id,
+    message,
+    chain,
+    cmd,
+    dsid,
+    inputs,
+    extra_inputs,
+    outputs,
+    slurm_outputs,
+    pwd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-    (commit_id, run_info["slurm_job_id"], outputs_json))
+    (commit_id,
+     run_info["slurm_job_id"],
+     message,
+     chain_json,
+     run_info["cmd"],
+     run_info["dsid"],
+     inputs_json,
+     extra_inputs_json,
+     outputs_json,
+     slurm_outputs_json,
+     run_info["pwd"]))
     
     # save and close
     con.commit()
