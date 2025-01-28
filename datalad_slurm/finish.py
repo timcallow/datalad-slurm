@@ -307,11 +307,9 @@ def finish_cmd(
         commit = (
             ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
         )
+        
+    results = extract_from_db(ds, commit)
 
-    # for now, we just assume this to be run on a single commit
-    revrange = "{rev}^..{rev}".format(rev=commit)
-
-    results = _revrange_as_results(ds, revrange)
     if not results:
         yield get_status_dict(
             "finish",
@@ -325,7 +323,7 @@ def finish_cmd(
     run_message = results["run_message"]
     run_info = results["run_info"]
     # concatenate outputs from both submission and completion
-    outputs_to_save = ensure_list(outputs) + ensure_list(results["run_info"]["outputs"])
+    outputs_to_save = ensure_list(outputs) + ensure_list(run_info["outputs"])
 
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
@@ -333,7 +331,7 @@ def finish_cmd(
         yield get_status_dict("run", status="error", message=err_msg)
         return
 
-    slurm_job_id = results["run_info"]["slurm_job_id"]
+    slurm_job_id = run_info["slurm_job_id"]
 
     # get a list of job ids and status (if we have an array job)
     job_states, job_status_group = get_job_status(slurm_job_id)
@@ -360,7 +358,7 @@ def finish_cmd(
         # Remove slurm files for CANCELLED or FAILED jobs
         if job_states[job_id] in ["CANCELLED", "FAILED"]:
             # TODO: ADD THE PATH HERE!!!
-            for output_file in run_info["slurm_run_outputs"]:
+            for output_file in run_info["slurm_outputs"]:
                 try:
                     os.remove(output_file)
                 except FileNotFoundError:
@@ -436,39 +434,38 @@ def finish_cmd(
             ):
                 yield r
 
+def extract_from_db(dset, commit_id):
+    """Extract the run info from the database entry."""
+    con, cur = connect_to_database(dset)
 
-def _revrange_as_results(dset, revrange):
-    ds_repo = dset.repo
-    rev_line = ds_repo.get_revisions(
-        revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
-    )[0]
-    if not rev_line:
-        return
+    # select all columns
+    query = "SELECT * FROM open_jobs WHERE commit_id = ?"
+    cur.execute(query, (commit_id,))
+    
+    # Fetch the record
+    record = cur.fetchone()
+    
+    if not record:
+        return None
 
-    # The strip() below is necessary because, with the format above, a
-    # commit without any parent has a trailing space. (We could also use a
-    # custom `rev-list --parents ...` call to avoid this.)
-    fields = rev_line.strip().split(" ")
-    rev, parents = fields[0], fields[1:]
-    res = get_status_dict("finish", ds=dset, commit=rev, parents=parents)
-    full_msg = ds_repo.format_commit("%B", rev)
-    msg, info = get_schedule_info(dset, full_msg)
-    if msg is None or info is None:
-        return
-    res["run_info"] = info
-    res["run_message"] = msg
+    # Get column names from cursor description
+    column_names = [desc[0] for desc in cur.description]
 
-    # TODO - what is happening here?
-    # if info is not None:
-    #     if len(parents) != 1:
-    #         lgr.warning(
-    #             "%s has run information but is a %s commit; "
-    #             "it will not be re-executed",
-    #             rev,
-    #             "merge" if len(parents) > 1 else "root")
-    #         continue
-    #     res["run_info"] = info
-    #     res["run_message"] = msg
+    # extract as dictionary
+    run_info = dict(zip(column_names, record))
+
+
+    # convert json columns to list
+    json_columns = ["chain", "inputs", "extra_inputs", "outputs", "slurm_outputs"]
+
+    for column in json_columns:
+        run_info[column] = json.loads(run_info[column])
+    
+    message = run_info["message"]
+    del run_info["message"]
+
+    res = {"run_message": message, "run_info": run_info}
+    
     return dict(res, status="ok")
 
 
