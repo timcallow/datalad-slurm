@@ -76,11 +76,10 @@ class Finish(Interface):
     """Finishes (i.e. saves outputs) a slurm submitted job."""
 
     _params_ = dict(
-        commit=Parameter(
-            args=("commit",),
-            metavar="COMMIT",
+        slurm_job_id=Parameter(
+            args=("slurm-job-id",),
             nargs="?",
-            doc=""" `commit`. Finishes the slurm job from the specified commit.""",
+            doc="""Finishes the slurm job from the specified slurm job id.""",
             default=None,
             constraints=EnsureStr() | EnsureNone(),
         ),
@@ -165,7 +164,7 @@ class Finish(Interface):
     @datasetmethod(name="finish")
     @eval_results
     def __call__(
-        commit=None,
+        slurm_job_id=None,
         *,
         dataset=None,
         message=None,
@@ -181,11 +180,10 @@ class Finish(Interface):
             dataset, check_installed=True, purpose="finish a SLURM job"
         )
         ds_repo = ds.repo
-        if commit:
-            commit_list = [commit]
-            slurm_job_id_list = []
+        if slurm_job_id:
+            slurm_job_id_list = [slurm_job_id]
         else:
-            commit_list, slurm_job_id_list, status_ok = get_scheduled_commits(
+            slurm_job_id_list, status_ok = get_scheduled_commits(
                 ds, branch
             )
             if not status_ok:
@@ -203,16 +201,16 @@ class Finish(Interface):
         if list_open_jobs:
             if slurm_job_id_list:
                 print("The following jobs are open: \n")
-                print(f"{'commit-id':<10} {'slurm-job-id':<14} {'slurm-job-status'}")
-                for i, commit_element in enumerate(commit_list):
-                    job_status = get_job_status(slurm_job_id_list[i])[1]
+                print(f"{'slurm-job-id':<14} {'slurm-job-status'}")
+                for i, slurm_job_id in enumerate(slurm_job_id_list):
+                    job_status = get_job_status(slurm_job_id)[1]
                     print(
-                        f"{commit_element[:7]:<10} {slurm_job_id_list[i]:<14} {job_status}"
+                        f"{slurm_job_id:<10} {job_status}"
                     )
             return
-        for commit_element in commit_list:
+        for slurm_job_id in slurm_job_id_list:
             for r in finish_cmd(
-                commit_element,
+                slurm_job_id,
                 dataset=dataset,
                 message=message,
                 outputs=outputs,
@@ -226,24 +224,20 @@ class Finish(Interface):
 
 
 def get_scheduled_commits(dset, branch):
-    """Return the commit ids and slurm job ids of all open jobs."""
+    """Return the slurm job ids of all open jobs."""
     # connect to the database
     con, cur = connect_to_database(dset, row_factory=True)
     if not con or not cur:
-        return None, None, None
-
-    # select the commit ids into a list
-    cur.execute("SELECT commit_id FROM open_jobs")
-    commit_ids = cur.fetchall()
+        return None, None
 
     # select the slurm job ids into a list
     cur.execute("SELECT slurm_job_id FROM open_jobs")
     slurm_job_ids = cur.fetchall()
 
-    return commit_ids, slurm_job_ids, True
+    return slurm_job_ids, True
 
 def finish_cmd(
-    commit,
+    slurm_job_id,
     dataset=None,
     message=None,
     outputs=None,
@@ -303,12 +297,7 @@ def finish_cmd(
         )
         return
 
-    if commit is None:
-        commit = (
-            ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-        )
-        
-    results = extract_from_db(ds, commit)
+    results = extract_from_db(ds, slurm_job_id)
 
     if not results:
         yield get_status_dict(
@@ -348,7 +337,7 @@ def finish_cmd(
             status_summary = ", ".join(
                 f"{job_id}: {status}" for job_id, status in job_states.items()
             )
-            message = f"Slurm job(s) for commit {commit[:7]} are not complete. Statuses: {status_summary}"
+            message = f"Slurm job(s) for job {slurm_job_id} are not complete. Statuses: {status_summary}"
             yield get_status_dict("finish", status="error", message=message)
             return
 
@@ -434,13 +423,13 @@ def finish_cmd(
             ):
                 yield r
 
-def extract_from_db(dset, commit_id):
+def extract_from_db(dset, slurm_job_id):
     """Extract the run info from the database entry."""
     con, cur = connect_to_database(dset)
 
     # select all columns
-    query = "SELECT * FROM open_jobs WHERE commit_id = ?"
-    cur.execute(query, (commit_id,))
+    query = "SELECT * FROM open_jobs WHERE slurm_job_id = ?"
+    cur.execute(query, (slurm_job_id,))
     
     # Fetch the record
     record = cur.fetchone()

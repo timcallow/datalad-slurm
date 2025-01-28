@@ -814,6 +814,16 @@ def run_command(
     else:
         status = "ok"
 
+    status_ok = add_to_database(ds, run_info, msg)
+    if not status_ok:
+        yield get_status_dict(
+            "schedule",
+            ds=ds,
+            status="error",
+            message=("Database connection cannot be established"),
+        )
+        return                    
+
     run_result = get_status_dict(
         "run",
         ds=ds,
@@ -847,9 +857,9 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
+
     if do_save:
         with chpwd(pwd):
-            has_results = False
             for r in Save.__call__(
                 dataset=ds_path,
                 path=outputs_to_save,
@@ -863,18 +873,7 @@ def run_command(
                 result_renderer="disabled",
                 on_failure="ignore",
             ):
-                has_results = True
                 yield r
-            if has_results:
-                status_ok = add_to_database(ds, run_info, msg)
-                if not status_ok:
-                    yield get_status_dict(
-                        "schedule",
-                        ds=ds,
-                        status="error",
-                        message=("Database connection cannot be established"),
-                    )
-                    return                    
 
 def check_output_conflict(dset, outputs):
     """
@@ -1068,7 +1067,6 @@ def add_to_database(dset, run_info, message):
     # create an empty table if it doesn't exist
     cur.execute("""
     CREATE TABLE IF NOT EXISTS open_jobs (
-    commit_id TEXT,
     slurm_job_id INTEGER,
     message TEXT,
     chain TEXT CHECK (json_valid(chain)),
@@ -1097,13 +1095,9 @@ def add_to_database(dset, run_info, message):
     # convert chain to json
     chain_json = json.dumps(run_info["chain"])
 
-    # get the most recent commit hash
-    commit_id = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
-
     # add the most recent schedule command to the table
     cur.execute("""
-    INSERT INTO open_jobs (commit_id,
-    slurm_job_id,
+    INSERT INTO open_jobs (slurm_job_id,
     message,
     chain,
     cmd,
@@ -1113,10 +1107,9 @@ def add_to_database(dset, run_info, message):
     outputs,
     slurm_outputs,
     pwd)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-    (commit_id,
-     run_info["slurm_job_id"],
+    (run_info["slurm_job_id"],
      message,
      chain_json,
      run_info["cmd"],
