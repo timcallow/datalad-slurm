@@ -793,10 +793,6 @@ def run_command(
         '"{}"'.format(record) if record_path else record,
     )
 
-    # outputs_to_save = globbed['slurm_job_file'].expand_strict()
-    # outputs_to_save = [f"slurm-job-submission-{slurm_job_id}"]
-    outputs_to_save = [slurm_env_file]
-    do_save = outputs_to_save is None or outputs_to_save
     msg_path = None
     if not rerun_info and cmd_exitcode:
         if do_save:
@@ -856,24 +852,6 @@ def run_command(
         if yield_expanded in (s, "both"):
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
-
-
-    if do_save:
-        with chpwd(pwd):
-            for r in Save.__call__(
-                dataset=ds_path,
-                path=outputs_to_save,
-                recursive=True,
-                message=msg,
-                jobs=jobs,
-                return_type="generator",
-                # we want this command and its parameterization to be in full
-                # control about the rendering of results, hence we must turn
-                # off internal rendering
-                result_renderer="disabled",
-                on_failure="ignore",
-            ):
-                yield r
 
 def check_output_conflict(dset, outputs):
     """
