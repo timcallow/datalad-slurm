@@ -761,37 +761,13 @@ def run_command(
     # abbreviate version of the command for illustrative purposes
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
 
-    # compose commit message
-    if rerun_info:
-        schedule_msg = "RESCHEDULE"
-    else:
-        schedule_msg = "SCHEDULE"
-    prefix = f"[DATALAD {schedule_msg}] "
-    msg = (
-        prefix
-        + """\
-{}
-
-=== Do not change lines below ===
-{}
-^^^ Do not change lines above ^^^
-"""
-    )
-    # append pending to the message
-    if message is not None:
-        message += f"\n Submitted batch job {slurm_job_id}: Pending"
-    else:
-        message = f"Submitted batch job {slurm_job_id}: Pending"
-
     # add extra info for re-scheduled jobs
     if rerun_info:
         slurm_id_old = rerun_info["slurm_job_id"]
         message += f"\n\nRe-submission of job {slurm_id_old}."
-
-    msg = msg.format(
-        message if message is not None else cmd_shorty,
-        '"{}"'.format(record) if record_path else record,
-    )
+        
+    
+    msg = message if message else None
 
     msg_path = None
     if not rerun_info and cmd_exitcode:

@@ -303,7 +303,7 @@ def finish_cmd(
         yield get_status_dict(
             "finish",
             status="error",
-            message="The commit message {} is not a DATALAD SCHEDULE commit".format(
+            message="Error accessing slurm job {} in database".format(
                 commit[:7]
             ),
         )
@@ -391,6 +391,10 @@ def finish_cmd(
         """
     job_status_group = job_status_group.capitalize()
     message = f"Slurm job {slurm_job_id}: {job_status_group}"
+    
+    # Add the user message from schedule
+    if run_message:
+        message += f"\n\n{run_message}"
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
