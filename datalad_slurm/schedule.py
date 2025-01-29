@@ -86,7 +86,7 @@ from datalad.core.local.run import (
     _get_substitutions,
 )
 
-from .common import get_schedule_info, check_finish_exists, connect_to_database
+from .common import check_finish_exists, connect_to_database
 
 lgr = logging.getLogger("datalad.slurm.schedule")
 

@@ -65,7 +65,7 @@ from datalad.utils import (
     quote_cmdlinearg,
 )
 
-from .common import get_schedule_info, connect_to_database
+from .common import connect_to_database
 
 from datalad.core.local.run import _create_record, get_command_pwds
 
