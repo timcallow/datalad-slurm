@@ -83,7 +83,7 @@ def get_finish_info(dset, message):
     # TODO fix the cmd_regex
 
     cmdrun_regex = (
-        r"\[DATALAD FINISH\] (.*)=== Do not change lines below "
+        r"\[DATALAD SLURM RUN\] (.*)=== Do not change lines below "
         r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
     )
     runinfo = re.match(cmdrun_regex, message, re.MULTILINE | re.DOTALL)

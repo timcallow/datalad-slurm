@@ -383,14 +383,14 @@ def finish_cmd(
 
     do_save = True
     msg = """\
-[DATALAD FINISH] {}
+[DATALAD SLURM RUN] {}
 
 === Do not change lines below ===
 {}
 ^^^ Do not change lines above ^^^
         """
     job_status_group = job_status_group.capitalize()
-    message = f"Processed batch job {slurm_job_id}: {job_status_group}"
+    message = f"Slurm job {slurm_job_id}: {job_status_group}"
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
