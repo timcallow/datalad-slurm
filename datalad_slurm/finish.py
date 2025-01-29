@@ -331,28 +331,27 @@ def finish_cmd(
 
     # process these job ids and job statuses
     if not all(status == "COMPLETED" for status in job_states.values()):
-        if not close_failed_jobs or any(
+        status_summary = ", ".join(
+            f"{job_id}: {status}" for job_id, status in job_states.items()
+        )
+        message = f"Slurm job(s) for job {slurm_job_id} are not complete. Statuses: {status_summary}"
+        if any(
             status in ["PENDING", "RUNNING"] for status in job_states.values()
         ):
-            status_summary = ", ".join(
-                f"{job_id}: {status}" for job_id, status in job_states.items()
-            )
-            message = f"Slurm job(s) for job {slurm_job_id} are not complete. Statuses: {status_summary}"
             yield get_status_dict("finish", status="error", message=message)
             return
+        else:
+            if close_failed_jobs:
+                # remove the job
+                status = remove_from_database(ds, run_info)
+                message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
+                yield get_status_dict("finish", status="ok", message=message)
+            else:
+                yield get_status_dict("finish", status="error", message=message)
+            return            
 
-    # Process each job status
-    for job_id, status in job_states.items():
-
-        # Remove slurm files for CANCELLED or FAILED jobs
-        if job_states[job_id] in ["CANCELLED", "FAILED"]:
-            # TODO: ADD THE PATH HERE!!!
-            for output_file in run_info["slurm_outputs"]:
-                try:
-                    os.remove(output_file)
-                except FileNotFoundError:
-                    continue
-
+    # TODO need to separate this more
+    # or is it already done due to above?
     if job_status_group == "PARTIALLY COMPLETED":
         # TODO path
         array_filename = f"array-job-info-{slurm_job_id}.out"
