@@ -390,11 +390,13 @@ def finish_cmd(
 ^^^ Do not change lines above ^^^
         """
     job_status_group = job_status_group.capitalize()
-    message = f"Slurm job {slurm_job_id}: {job_status_group}"
+    message_entry = f"Slurm job {slurm_job_id}: {job_status_group}"
     
-    # Add the user message from schedule
+    # Add the user messages from schedule and finish
+    if message:
+        message_entry += f"\n\n{message}"
     if run_message:
-        message += f"\n\n{run_message}"
+        message_entry += f"\n\n{run_message}"
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
@@ -402,7 +404,7 @@ def finish_cmd(
     record, record_path = _create_record(run_info, False, ds)
 
     msg = msg.format(
-        message if message is not None else cmd_shorty,
+        message_entry if message_entry is not None else cmd_shorty,
         '"{}"'.format(record) if record_path else record,
     )
 
