@@ -77,7 +77,7 @@ class Finish(Interface):
 
     _params_ = dict(
         slurm_job_id=Parameter(
-            args=("slurm-job-id",),
+            args=("--slurm-job-id",),
             nargs="?",
             doc="""Finishes the slurm job from the specified slurm job id.""",
             default=None,
