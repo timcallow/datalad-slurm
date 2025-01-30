@@ -519,7 +519,10 @@ def get_job_status(job_id):
         if len(unique_statuses) == 1:
             job_status_group = unique_statuses.pop()  # Get the single status value
         else:
-            job_status_group = "PARTIALLY COMPLETED"
+            if "COMPLETED" in unique_statuses:
+                job_status_group = "PARTIALLY COMPLETED"
+            else:
+                job_status_group = "FAILED (MIXED)"
 
         return job_states, job_status_group
 
