@@ -62,8 +62,8 @@ for i in $TARGETS ; do
     DIR="test_02_output_dir_"$i
 
     cd $DIR
-    echo datalad schedule -o "test_*_output_dir_"$i sbatch slurm1.sh
-    datalad schedule -o "test_*_output_dir_"$i sbatch slurm1.sh
+    echo datalad schedule -o "test_*_output_dir_"$i --allow-wildcard-outputs sbatch slurm1.sh
+    datalad schedule -o "test_*_output_dir_"$i --allow-wildcard-outputs sbatch slurm1.sh
     cd ..
 
 done
@@ -77,8 +77,8 @@ for i in $TARGETS ; do
     DIR="test_02_output_dir_"$i
 
     cd $DIR
-    echo datalad schedule -o "test_*_output_dir_"$i sbatch slurm2.sh
-    datalad schedule -o "test_*_output_dir_"$i sbatch slurm2.sh
+    echo datalad schedule -o "test_*_output_dir_"$i --allow-wildcard-outputs sbatch slurm2.sh
+    datalad schedule -o "test_*_output_dir_"$i --allow-wildcard-outputs sbatch slurm2.sh
     cd ..
 
 done

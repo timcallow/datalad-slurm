@@ -57,7 +57,7 @@ for i in $TARGETS ; do
     DIR="test_01_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o "test_*_output_dir_"$i sbatch slurm.sh
+    datalad schedule -o "test_*_output_dir_"$i --allow-wildcard-outputs sbatch slurm.sh
     cd ..
 
 done

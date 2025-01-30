@@ -86,7 +86,7 @@ from datalad.core.local.run import (
     _get_substitutions,
 )
 
-from .common import get_schedule_info, check_finish_exists, connect_to_database
+from .common import check_finish_exists, connect_to_database
 
 lgr = logging.getLogger("datalad.slurm.schedule")
 
@@ -761,42 +761,14 @@ def run_command(
     # abbreviate version of the command for illustrative purposes
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
 
-    # compose commit message
-    if rerun_info:
-        schedule_msg = "RESCHEDULE"
-    else:
-        schedule_msg = "SCHEDULE"
-    prefix = f"[DATALAD {schedule_msg}] "
-    msg = (
-        prefix
-        + """\
-{}
-
-=== Do not change lines below ===
-{}
-^^^ Do not change lines above ^^^
-"""
-    )
-    # append pending to the message
-    if message is not None:
-        message += f"\n Submitted batch job {slurm_job_id}: Pending"
-    else:
-        message = f"Submitted batch job {slurm_job_id}: Pending"
-
     # add extra info for re-scheduled jobs
     if rerun_info:
         slurm_id_old = rerun_info["slurm_job_id"]
         message += f"\n\nRe-submission of job {slurm_id_old}."
+        
+    
+    msg = message if message else None
 
-    msg = msg.format(
-        message if message is not None else cmd_shorty,
-        '"{}"'.format(record) if record_path else record,
-    )
-
-    # outputs_to_save = globbed['slurm_job_file'].expand_strict()
-    # outputs_to_save = [f"slurm-job-submission-{slurm_job_id}"]
-    outputs_to_save = [slurm_env_file]
-    do_save = outputs_to_save is None or outputs_to_save
     msg_path = None
     if not rerun_info and cmd_exitcode:
         if do_save:
@@ -813,6 +785,16 @@ def run_command(
         status = "error"
     else:
         status = "ok"
+
+    status_ok = add_to_database(ds, run_info, msg)
+    if not status_ok:
+        yield get_status_dict(
+            "schedule",
+            ds=ds,
+            status="error",
+            message=("Database connection cannot be established"),
+        )
+        return                    
 
     run_result = get_status_dict(
         "run",
@@ -847,35 +829,6 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
-    if do_save:
-        with chpwd(pwd):
-            has_results = False
-            for r in Save.__call__(
-                dataset=ds_path,
-                path=outputs_to_save,
-                recursive=True,
-                message=msg,
-                jobs=jobs,
-                return_type="generator",
-                # we want this command and its parameterization to be in full
-                # control about the rendering of results, hence we must turn
-                # off internal rendering
-                result_renderer="disabled",
-                on_failure="ignore",
-            ):
-                has_results = True
-                yield r
-            if has_results:
-                status_ok = add_to_database(ds, run_info)
-                if not status_ok:
-                    yield get_status_dict(
-                        "schedule",
-                        ds=ds,
-                        status="error",
-                        message=("Database connection cannot be established"),
-                    )
-                    return                    
-
 def check_output_conflict(dset, outputs):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
@@ -894,19 +847,21 @@ def check_output_conflict(dset, outputs):
         return None, None
 
     # Get all existing outputs from database
-    cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
-    existing_records = cur.fetchall()
-    
-    # Check each record for conflicts
-    conflicting_jobs = []
-    for job_id, json_outputs in existing_records:
-        try:
-            existing_outputs = json.loads(json_outputs)
-            if set(outputs) & set(existing_outputs):
-                conflicting_jobs.append(job_id)
-        except json.JSONDecodeError:
-            continue
-        
+    try:
+        cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
+        existing_records = cur.fetchall()
+
+        # Check each record for conflicts
+        conflicting_jobs = []
+        for job_id, json_outputs in existing_records:
+            try:
+                existing_outputs = json.loads(json_outputs)
+                if set(outputs) & set(existing_outputs):
+                    conflicting_jobs.append(job_id)
+            except json.JSONDecodeError:
+                continue
+    except sqlite3.Error:
+        conflicting_jobs = []
     return conflicting_jobs, True
 
 
@@ -1057,7 +1012,7 @@ def generate_array_job_names(job_id, job_task_id):
     return job_names
 
 
-def add_to_database(dset, run_info):
+def add_to_database(dset, run_info, message):
     """Add a `datalad schedule` command to an sqlite database."""
     con, cur = connect_to_database(dset)
     if not cur or not con:
@@ -1066,24 +1021,58 @@ def add_to_database(dset, run_info):
     # create an empty table if it doesn't exist
     cur.execute("""
     CREATE TABLE IF NOT EXISTS open_jobs (
-    commit_id TEXT,
     slurm_job_id INTEGER,
-    outputs TEXT,
-    CONSTRAINT validate_json CHECK (json_valid(outputs))
+    message TEXT,
+    chain TEXT CHECK (json_valid(chain)),
+    cmd TEXT,
+    dsid TEXT,
+    inputs TEXT CHECK (json_valid(inputs)),
+    extra_inputs TEXT CHECK (json_valid(extra_inputs)),
+    outputs TEXT CHECK (json_valid(outputs)),
+    slurm_outputs TEXT CHECK (json_valid(slurm_outputs)),
+    pwd TEXT
     )
     """)
+
+    # convert the inputs to json
+    inputs_json = json.dumps(run_info["inputs"])
+
+    # convert the extra inputs to json
+    extra_inputs_json = json.dumps(run_info["extra_inputs"])
 
     # convert the outputs to json
     outputs_json = json.dumps(run_info["outputs"])
 
-    # get the most recent commit hash
-    commit_id = subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode('ascii').strip()
+    # convert the slurm outputs to json
+    slurm_outputs_json = json.dumps(run_info["slurm_run_outputs"])
+
+    # convert chain to json
+    chain_json = json.dumps(run_info["chain"])
 
     # add the most recent schedule command to the table
     cur.execute("""
-    INSERT INTO open_jobs (commit_id, slurm_job_id, outputs) VALUES (?, ?, ?)
+    INSERT INTO open_jobs (slurm_job_id,
+    message,
+    chain,
+    cmd,
+    dsid,
+    inputs,
+    extra_inputs,
+    outputs,
+    slurm_outputs,
+    pwd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-    (commit_id, run_info["slurm_job_id"], outputs_json))
+    (run_info["slurm_job_id"],
+     message,
+     chain_json,
+     run_info["cmd"],
+     run_info["dsid"],
+     inputs_json,
+     extra_inputs_json,
+     outputs_json,
+     slurm_outputs_json,
+     run_info["pwd"]))
     
     # save and close
     con.commit()

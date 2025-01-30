@@ -61,8 +61,8 @@ for i in $TARGETS ; do
     FILE="output_test_array_*.txt"
 
     cd $DIR
-    echo datalad schedule -o $PWD/$FILE sbatch slurm.sh $i
-    datalad schedule -o $PWD/$FILE sbatch slurm.sh $i
+    echo datalad schedule -o $PWD/$FILE --allow-wildcard-outputs sbatch slurm.sh $i
+    datalad schedule -o $PWD/$FILE --allow-wildcard-outputs sbatch slurm.sh $i
     cd ..
 
 done
