@@ -341,17 +341,18 @@ def finish_cmd(
             yield get_status_dict("finish", status="error", message=message)
             return
         else:
-            if close_failed_jobs:
-                # remove the job
-                status = remove_from_database(ds, run_info)
-                message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
-                yield get_status_dict("finish", status="ok", message=message)
-            else:
+            if not close_failed_jobs:
                 yield get_status_dict("finish", status="error", message=message)
-            return            
-
-    # TODO need to separate this more
-    # or is it already done due to above?
+                return
+            else:
+                if job_status_group != "PARTIALLY COMPLETED":
+                    # remove the job
+                    status = remove_from_database(ds, run_info)
+                    message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
+                    yield get_status_dict("finish", status="ok", message=message)
+                    return            
+        
+    # if array job is partially succesful then we close it succesfully
     if job_status_group == "PARTIALLY COMPLETED":
         # TODO path
         array_filename = f"array-job-info-{slurm_job_id}.out"
