@@ -205,19 +205,15 @@ class Schedule(Interface):
             :command:`datalad get .`". The value can also be a glob. [CMD: This
             option can be given more than once. CMD]""",
         ),
-        outputs=Parameter(
-            args=("-o", "--output"),
-            dest="outputs",
+        output_files=Parameter(
+            args=("-o", "--output-file"),
+            dest="output_files",
             metavar=("PATH"),
             action="append",
             doc="""Prepare this relative path to be an output file of the command. A
             value of "." means "run :command:`datalad unlock .`" (and will fail
             if some content isn't present). For any other value, if the content
-            of this file is present, unlock the file. Otherwise, remove it. The
-            value can also be a glob if --allow-wildcard-outputs is enabled.
-            N.B.: If outputs contain wildcards, it is esssential to enclose them in
-            quotations, e.g. -o "file*.txt", NOT -o file*.txt. This is so that wildcard
-            expansion is performed inside datalad-slurm and not on the command line.
+            of this file is present, unlock the file. Otherwise, remove it.
             [CMD: This option can be given more than once. CMD]""",
         ),
         expand=Parameter(
@@ -276,7 +272,7 @@ class Schedule(Interface):
         *,
         dataset=None,
         inputs=None,
-        outputs=None,
+        output_files=None,
         expand=None,
         assume_ready=None,
         message=None,
@@ -288,7 +284,7 @@ class Schedule(Interface):
             cmd,
             dataset=dataset,
             inputs=inputs,
-            outputs=outputs,
+            output_files=output_files,
             expand=expand,
             assume_ready=assume_ready,
             message=message,
@@ -437,7 +433,7 @@ def run_command(
     cmd,
     dataset=None,
     inputs=None,
-    outputs=None,
+    output_files=None,
     expand=None,
     assume_ready=None,
     message=None,
@@ -515,7 +511,7 @@ def run_command(
         for k, v in (
             ("inputs", inputs),
             ("extra_inputs", extra_inputs),
-            ("outputs", outputs),
+            ("output_files", output_files),
         )
     }
 
@@ -553,13 +549,13 @@ def run_command(
             return
     
     wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
-    if any(char in output for char in wildcard_list for output in outputs):
+    if any(char in output for char in wildcard_list for output in output_files):
         yield get_status_dict(
             "run",
             ds=ds,
             status="impossible",
             message=(
-                "Wildcards in outputs are forbidden due to potential conflicts."
+                "Wildcards in output_files are forbidden due to potential conflicts."
             ),
         )
         return
@@ -588,7 +584,7 @@ def run_command(
                 in (
                     # extra_inputs follow same expansion rules as `inputs`.
                     ["both"]
-                    + (["outputs"] if k == "outputs" else ["inputs"])
+                    + (["output_files"] if k == "output_files" else ["inputs"])
                 ),
             )
             for k, v in expanded_specs.items()
@@ -632,7 +628,7 @@ def run_command(
         # the following override any matching non-glob substitution
         # values
         inputs=globbed["inputs"],
-        outputs=globbed["outputs"],
+        output_files=globbed["output_files"],
     )
     try:
         cmd_expanded = format_command(ds, cmd, **cmd_fmt_kwargs)
@@ -662,7 +658,7 @@ def run_command(
     for k, v in specs.items():
         run_info[k] = (
             globbed[k].paths
-            if expand in ["both"] + (["outputs"] if k == "outputs" else ["inputs"])
+            if expand in ["both"] + (["output_files"] if k == "output_files" else ["inputs"])
             else (v if parametric_record else expanded_specs[k]) or []
         )
 
@@ -684,14 +680,14 @@ def run_command(
             dry_run_info=dict(
                 cmd_expanded=cmd_expanded,
                 pwd_full=pwd,
-                **{k: globbed[k].expand() for k in ("inputs", "outputs")},
+                **{k: globbed[k].expand() for k in ("inputs", "output_files")},
             ),
         )
         return
 
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
-        output_conflict, status_ok = check_output_conflict(ds, run_info["outputs"])
+        output_conflict, status_ok = check_output_conflict(ds, run_info["output_files"])
         if not status_ok:
             yield get_status_dict(
                 "schedule",
@@ -717,8 +713,8 @@ def run_command(
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info["exit"] = cmd_exitcode
         slurm_outputs, slurm_env_file = get_slurm_output_files(slurm_job_id)
-        run_info["outputs"].extend(slurm_outputs)
-        run_info["outputs"].append(slurm_env_file)
+        run_info["output_files"].extend(slurm_outputs)
+        run_info["output_files"].append(slurm_env_file)
         run_info["slurm_run_outputs"] = slurm_outputs
         run_info["slurm_run_outputs"].append(slurm_env_file)
 
@@ -729,15 +725,15 @@ def run_command(
     #
     # TODO: If a warning or error is desired when an --output pattern doesn't
     # have a match, this would be the spot to do it.
-    if explicit or expand in ["outputs", "both"]:
+    if explicit or expand in ["output_files", "both"]:
         # also for explicit mode we have to re-glob to be able to save all
         # matching outputs
-        globbed["outputs"].expand(refresh=True)
-        if expand in ["outputs", "both"]:
-            run_info["outputs"] = globbed["outputs"].paths
+        globbed["output_files"].expand(refresh=True)
+        if expand in ["output_files", "both"]:
+            run_info["output_files"] = globbed["output_files"].paths
             # add the slurm outputs and environment files
             # these are not captured in the initial globbing
-            run_info["outputs"].extend(slurm_outputs)
+            run_info["output_files"].extend(slurm_outputs)
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
@@ -801,7 +797,7 @@ def run_command(
     if record_path:
         # we the record is in a sidecar file, report its ID
         run_result["record_id"] = record
-    for s in ("inputs", "outputs"):
+    for s in ("inputs", "output_files"):
         # this enables callers to further inspect the outputs without
         # performing globbing again. Together with remove_outputs=True
         # these would be guaranteed to be the outcome of the executed
