@@ -226,16 +226,6 @@ class Schedule(Interface):
             commit message.""",
             constraints=EnsureChoice(None, "inputs", "outputs", "both"),
         ),
-        allow_wildcard_outputs=Parameter(
-            args=("--allow-wildcard-outputs",),
-            action="store_true",
-            doc="""Allow outputs to contain wildcard entries.
-            This is disabled by default because the outputs cannot be expanded
-            at submission time if the files don't exist yet.
-            If enabled, no expansion of wildcards is performed, and only the raw
-            string is checked against raw strings from previous schedule commands.
-            So take care to ensure proper output definitions with this argument enabled.""",
-        ),
         assume_ready=assume_ready_opt,
         message=save_message_opt,
         check_outputs=Parameter(
@@ -291,7 +281,6 @@ class Schedule(Interface):
         assume_ready=None,
         message=None,
         check_outputs=True,
-        allow_wildcard_outputs=False,
         dry_run=None,
         jobs=None,
     ):
@@ -304,7 +293,6 @@ class Schedule(Interface):
             assume_ready=assume_ready,
             message=message,
             check_outputs=check_outputs,
-            allow_wildcard_outputs=allow_wildcard_outputs,
             dry_run=dry_run,
             jobs=jobs,
         ):
@@ -454,7 +442,6 @@ def run_command(
     assume_ready=None,
     message=None,
     check_outputs=True,
-    allow_wildcard_outputs=False,
     sidecar=None,
     dry_run=False,
     jobs=None,
@@ -565,19 +552,17 @@ def run_command(
             )
             return
     
-    if not rerun_info and not allow_wildcard_outputs and outputs:
-        wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
-        if any(char in output for char in wildcard_list for output in outputs):
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "Outputs include wildcards. This error can be disabled "
-                    "with the parameter --allow-wildcard-outputs."
-                ),
-            )
-            return
+    wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
+    if any(char in output for char in wildcard_list for output in outputs):
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="impossible",
+            message=(
+                "Wildcards in outputs are forbidden due to potential conflicts."
+            ),
+        )
+        return
 
     # everything below expects the string-form of the command
     cmd = normalize_command(cmd)
