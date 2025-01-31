@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name="DLtest03"         # name of the job
-#SBATCH --partition=casus_genoa       # partition to be used (defq, gpu or intel)
+#SBATCH --partition=casus       # partition to be used (defq, gpu or intel)
 #SBATCH -A casus
 #SBATCH --time=0:05:00                # walltime (up to 96 hours)
 #SBATCH --ntasks=1                    # number of nodes
