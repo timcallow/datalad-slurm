@@ -206,8 +206,19 @@ class Schedule(Interface):
             option can be given more than once. CMD]""",
         ),
         output_files=Parameter(
-            args=("-o", "--output-file"),
+            args=("--output-file",),
             dest="output_files",
+            metavar=("PATH"),
+            action="append",
+            doc="""Prepare this relative path to be an output file of the command. A
+            value of "." means "run :command:`datalad unlock .`" (and will fail
+            if some content isn't present). For any other value, if the content
+            of this file is present, unlock the file. Otherwise, remove it.
+            [CMD: This option can be given more than once. CMD]""",
+        ),
+        output_dirs=Parameter(
+            args=("--output-dir",),
+            dest="output_dirs",
             metavar=("PATH"),
             action="append",
             doc="""Prepare this relative path to be an output file of the command. A
@@ -273,6 +284,7 @@ class Schedule(Interface):
         dataset=None,
         inputs=None,
         output_files=None,
+        output_dirs=None,
         expand=None,
         assume_ready=None,
         message=None,
@@ -285,6 +297,7 @@ class Schedule(Interface):
             dataset=dataset,
             inputs=inputs,
             output_files=output_files,
+            output_dirs=output_dirs,
             expand=expand,
             assume_ready=assume_ready,
             message=message,
@@ -434,6 +447,7 @@ def run_command(
     dataset=None,
     inputs=None,
     output_files=None,
+    output_dirs=None,
     expand=None,
     assume_ready=None,
     message=None,
@@ -512,6 +526,7 @@ def run_command(
             ("inputs", inputs),
             ("extra_inputs", extra_inputs),
             ("output_files", output_files),
+            ("output_dirs", output_dirs),
         )
     }
 
@@ -547,18 +562,32 @@ def run_command(
                 ),
             )
             return
-    
+
     wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
-    if any(char in output for char in wildcard_list for output in output_files):
-        yield get_status_dict(
-            "run",
-            ds=ds,
-            status="impossible",
-            message=(
-                "Wildcards in output_files are forbidden due to potential conflicts."
-            ),
-        )
-        return
+
+    if output_files:
+        if any(char in output for char in wildcard_list for output in output_files):
+            yield get_status_dict(
+                "run",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "Wildcards in output_files are forbidden due to potential conflicts."
+                ),
+            )
+            return
+
+    if output_dirs:
+        if any(char in output for char in wildcard_list for output in output_dirs):
+            yield get_status_dict(
+                "run",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "Wildcards in output_dirs are forbidden due to potential conflicts."
+                ),
+            )
+            return
 
     # everything below expects the string-form of the command
     cmd = normalize_command(cmd)
@@ -573,10 +602,14 @@ def run_command(
     # apply the substitution to the IO specs
     expanded_specs = {k: _format_iospecs(v, **cmd_fmt_kwargs) for k, v in specs.items()}
 
+    # get all the prefixes of the outputs
+    new_prefixes = get_sub_paths(output_dirs) if output_dirs else None
+
     # Check for output conflicts HERE
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
-        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["output_files"])
+        
+        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["output_files"], expanded_specs["output_dirs"])
         if not status_ok:
             yield get_status_dict(
                 "schedule",
@@ -598,11 +631,13 @@ def run_command(
             return
 
     # and then convert the output_files and output_dirs into a unified outputs parameter
-    expanded_specs["outputs"] = expanded_specs["output_files"] # + expanded_specs["output_dirs"]
-    specs["outputs"] = specs["output_files"]
+    
+    expanded_specs["outputs"] = _none_to_empty_list(expanded_specs["output_files"]) + _none_to_empty_list(expanded_specs["output_dirs"])
+    specs["outputs"] = _none_to_empty_list(specs["output_files"]) + _none_to_empty_list(specs["output_dirs"])
     del expanded_specs["output_files"]
+    del expanded_specs["output_dirs"]
     del specs["output_files"]
-    # del expanded_specs["output_dirs"]
+    del specs["output_dirs"]
 
     # try-expect to catch expansion issues in _format_iospecs() which
     # expands placeholders in dependency/output specification before
@@ -632,8 +667,7 @@ def run_command(
             ),
         )
         return
-        
-        
+
     if not (inject or dry_run):
         yield from _prep_worktree(
             ds_path,
@@ -695,6 +729,7 @@ def run_command(
             if expand in ["both"] + (["outputs"] if k == "outputs" else ["inputs"])
             else (v if parametric_record else expanded_specs[k]) or []
         )
+    
 
     if rel_pwd is not None:
         # only when inside the dataset to not leak information
@@ -824,7 +859,7 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
-def check_output_conflict(dset, outputs):
+def check_output_conflict(dset, output_files, output_dirs):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
     
@@ -858,6 +893,31 @@ def check_output_conflict(dset, outputs):
     except sqlite3.Error:
         conflicting_jobs = []
     return conflicting_jobs, True
+
+def get_sub_paths(paths):
+    r"""
+    Extract sub-paths from directories. 
+
+    E.g. /a/b/c/d/ -> /a/, /a/b/c/
+    """
+    # Set to store unique sub-paths
+    all_sub_paths = set()
+    
+    for path in paths:
+        # Remove trailing slash if present
+        path = path.rstrip('/')
+        
+        # Split the path into components
+        components = path.split('/')
+        
+        # Build sub-paths, excluding the full path
+        current_path = ''
+        for component in components[:-1]:  # Stop before the last component
+            current_path += component + '/'
+            all_sub_paths.add(current_path)
+    
+    # Convert set to sorted list for consistent output
+    return sorted(list(all_sub_paths))
 
 
 def get_slurm_output_files(job_id):
@@ -1074,7 +1134,9 @@ def add_to_database(dset, run_info, message):
     con.close()
 
     return True
-    
+
+def _none_to_empty_list(value):
+    return [] if value is None else value
 
     
     
