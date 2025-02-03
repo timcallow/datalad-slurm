@@ -566,7 +566,7 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
             # entire state of the tree with #1424, but we limit ourself to file
             # addition/not-in-place-modification for now
             auto_outputs = (ap["path"] for ap in new_or_modified(res["diff"]))
-            outputs = run_info.get("output_files", [])
+            outputs = run_info.get("outputs", [])
             outputs_dir = op.join(dset.path, run_info["pwd"])
             auto_outputs = [
                 p
@@ -586,7 +586,7 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
                 dataset=dset,
                 inputs=run_info.get("inputs", []),
                 extra_inputs=run_info.get("extra_inputs", []),
-                outputs=outputs,
+                output_files=outputs,
                 assume_ready=assume_ready,
                 explicit=explicit,
                 rerun_outputs=auto_outputs,

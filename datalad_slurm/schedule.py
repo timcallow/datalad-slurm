@@ -572,6 +572,38 @@ def run_command(
 
     # apply the substitution to the IO specs
     expanded_specs = {k: _format_iospecs(v, **cmd_fmt_kwargs) for k, v in specs.items()}
+
+    # Check for output conflicts HERE
+    # now check history of outputs in un-finished slurm commands
+    if check_outputs:
+        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["output_files"])
+        if not status_ok:
+            yield get_status_dict(
+                "schedule",
+                ds=ds,
+                status="error",
+                message=("Database connection cannot be established"),
+            )
+            return
+        if output_conflict:
+            yield get_status_dict(
+                "schedule",
+                ds=ds,
+                status="error",
+                message=(
+                    "There are conflicting outputs with the previously scheduled jobs: {}. \n"
+                    "Finish those jobs or adjust output for the current job first."
+                ).format(output_conflict),
+            )
+            return
+
+    # and then convert the output_files and output_dirs into a unified outputs parameter
+    expanded_specs["outputs"] = expanded_specs["output_files"] # + expanded_specs["output_dirs"]
+    specs["outputs"] = specs["output_files"]
+    del expanded_specs["output_files"]
+    del specs["output_files"]
+    # del expanded_specs["output_dirs"]
+
     # try-expect to catch expansion issues in _format_iospecs() which
     # expands placeholders in dependency/output specification before
     # globbing
@@ -584,7 +616,7 @@ def run_command(
                 in (
                     # extra_inputs follow same expansion rules as `inputs`.
                     ["both"]
-                    + (["output_files"] if k == "output_files" else ["inputs"])
+                    + (["outputs"] if k == "outputs" else ["inputs"])
                 ),
             )
             for k, v in expanded_specs.items()
@@ -600,7 +632,8 @@ def run_command(
             ),
         )
         return
-
+        
+        
     if not (inject or dry_run):
         yield from _prep_worktree(
             ds_path,
@@ -628,7 +661,7 @@ def run_command(
         # the following override any matching non-glob substitution
         # values
         inputs=globbed["inputs"],
-        output_files=globbed["output_files"],
+        outputs=globbed["outputs"],
     )
     try:
         cmd_expanded = format_command(ds, cmd, **cmd_fmt_kwargs)
@@ -651,6 +684,7 @@ def run_command(
         # the `or/else []`
         "chain": rerun_info["chain"] if rerun_info else [],
     }
+
     # for all following we need to make sure that the raw
     # specifications, incl. any placeholders make it into
     # the run-record to enable "parametric" re-runs
@@ -658,7 +692,7 @@ def run_command(
     for k, v in specs.items():
         run_info[k] = (
             globbed[k].paths
-            if expand in ["both"] + (["output_files"] if k == "output_files" else ["inputs"])
+            if expand in ["both"] + (["outputs"] if k == "outputs" else ["inputs"])
             else (v if parametric_record else expanded_specs[k]) or []
         )
 
@@ -680,41 +714,21 @@ def run_command(
             dry_run_info=dict(
                 cmd_expanded=cmd_expanded,
                 pwd_full=pwd,
-                **{k: globbed[k].expand() for k in ("inputs", "output_files")},
+                **{k: globbed[k].expand() for k in ("inputs", "outputs")},
             ),
         )
         return
 
-    # now check history of outputs in un-finished slurm commands
-    if check_outputs:
-        output_conflict, status_ok = check_output_conflict(ds, run_info["output_files"])
-        if not status_ok:
-            yield get_status_dict(
-                "schedule",
-                ds=ds,
-                status="error",
-                message=("Database connection cannot be established"),
-            )
-            return
-        if output_conflict:
-            yield get_status_dict(
-                "schedule",
-                ds=ds,
-                status="error",
-                message=(
-                    "There are conflicting outputs with the previously scheduled jobs: {}. \n"
-                    "Finish those jobs or adjust output for the current job first."
-                ).format(output_conflict),
-            )
-            return
+
     
     # TODO what happens in case of inject??
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info["exit"] = cmd_exitcode
+        # TODO: expand these paths
         slurm_outputs, slurm_env_file = get_slurm_output_files(slurm_job_id)
-        run_info["output_files"].extend(slurm_outputs)
-        run_info["output_files"].append(slurm_env_file)
+        run_info["outputs"].extend(slurm_outputs)
+        run_info["outputs"].append(slurm_env_file)
         run_info["slurm_run_outputs"] = slurm_outputs
         run_info["slurm_run_outputs"].append(slurm_env_file)
 
@@ -725,15 +739,15 @@ def run_command(
     #
     # TODO: If a warning or error is desired when an --output pattern doesn't
     # have a match, this would be the spot to do it.
-    if explicit or expand in ["output_files", "both"]:
+    if explicit or expand in ["outputs", "both"]:
         # also for explicit mode we have to re-glob to be able to save all
         # matching outputs
-        globbed["output_files"].expand(refresh=True)
-        if expand in ["output_files", "both"]:
-            run_info["output_files"] = globbed["output_files"].paths
+        globbed["outputs"].expand(refresh=True)
+        if expand in ["outputs", "both"]:
+            run_info["outputs"] = globbed["outputs"].paths
             # add the slurm outputs and environment files
             # these are not captured in the initial globbing
-            run_info["output_files"].extend(slurm_outputs)
+            run_info["outputs"].extend(slurm_outputs)
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
@@ -797,7 +811,7 @@ def run_command(
     if record_path:
         # we the record is in a sidecar file, report its ID
         run_result["record_id"] = record
-    for s in ("inputs", "output_files"):
+    for s in ("inputs", "outputs"):
         # this enables callers to further inspect the outputs without
         # performing globbing again. Together with remove_outputs=True
         # these would be guaranteed to be the outcome of the executed

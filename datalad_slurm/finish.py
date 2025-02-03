@@ -122,9 +122,9 @@ class Finish(Interface):
             executed in the root directory of this dataset.""",
             constraints=EnsureDataset() | EnsureNone(),
         ),
-        output_files=Parameter(
+        outputs=Parameter(
             args=("-o", "--output"),
-            dest="output_files",
+            dest="outputs",
             metavar=("PATH"),
             action="append",
             doc="""Prepare this relative path to be an output file of the command. A
@@ -168,7 +168,7 @@ class Finish(Interface):
         *,
         dataset=None,
         message=None,
-        output_files=None,
+        outputs=None,
         onto=None,
         explicit=True,
         close_failed_jobs=False,
@@ -213,7 +213,7 @@ class Finish(Interface):
                 slurm_job_id,
                 dataset=dataset,
                 message=message,
-                output_files=output_files,
+                outputs=outputs,
                 onto=None,
                 explicit=explicit,
                 close_failed_jobs=close_failed_jobs,
@@ -240,7 +240,7 @@ def finish_cmd(
     slurm_job_id,
     dataset=None,
     message=None,
-    output_files=None,
+    outputs=None,
     onto=None,
     explicit=True,
     close_failed_jobs=False,
@@ -312,7 +312,7 @@ def finish_cmd(
     run_message = results["run_message"]
     run_info = results["run_info"]
     # concatenate outputs from both submission and completion
-    outputs_to_save = ensure_list(output_files) + ensure_list(run_info["output_files"])
+    outputs_to_save = ensure_list(outputs) + ensure_list(run_info["outputs"])
 
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
@@ -370,7 +370,7 @@ def finish_cmd(
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
 
     # update the run info with the new outputs
-    run_info["output_files"] = globbed_outputs
+    run_info["outputs"] = globbed_outputs
 
     # TODO: this is not saving model files (outputs from first job) for some reason
     # rel_pwd = rerun_info.get('pwd') if rerun_info else None
