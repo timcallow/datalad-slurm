@@ -603,13 +603,12 @@ def run_command(
     expanded_specs = {k: _format_iospecs(v, **cmd_fmt_kwargs) for k, v in specs.items()}
 
     # get all the prefixes of the outputs
-    new_prefixes = get_sub_paths(output_dirs) if output_dirs else None
+    locked_prefixes = get_sub_paths(expanded_specs["output_dirs"]) if output_dirs else None
 
     # Check for output conflicts HERE
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
-        
-        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["output_files"], expanded_specs["output_dirs"])
+        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["output_files"], expanded_specs["output_dirs"], locked_prefixes)
         if not status_ok:
             yield get_status_dict(
                 "schedule",
@@ -631,9 +630,13 @@ def run_command(
             return
 
     # and then convert the output_files and output_dirs into a unified outputs parameter
-    
-    expanded_specs["outputs"] = _none_to_empty_list(expanded_specs["output_files"]) + _none_to_empty_list(expanded_specs["output_dirs"])
-    specs["outputs"] = _none_to_empty_list(specs["output_files"]) + _none_to_empty_list(specs["output_dirs"])
+    output_files = _none_to_empty_list(specs["output_files"])
+    output_dirs = _none_to_empty_list(specs["output_dirs"])
+    expanded_output_files = _none_to_empty_list(expanded_specs["output_files"])
+    expanded_output_dirs = _none_to_empty_list(expanded_specs["output_dirs"])
+
+    expanded_specs["outputs"] = expanded_output_files + expanded_output_dirs
+    specs["outputs"] = output_files + output_dirs
     del expanded_specs["output_files"]
     del expanded_specs["output_dirs"]
     del specs["output_files"]
@@ -816,7 +819,7 @@ def run_command(
     else:
         status = "ok"
 
-    status_ok = add_to_database(ds, run_info, msg)
+    status_ok = add_to_database(ds, run_info, msg, expanded_output_files, expanded_output_dirs, locked_prefixes)
     if not status_ok:
         yield get_status_dict(
             "schedule",
@@ -859,7 +862,7 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
-def check_output_conflict(dset, output_files, output_dirs):
+def check_output_conflict(dset, output_files, output_dirs, output_prefixes):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
     
@@ -1067,7 +1070,7 @@ def generate_array_job_names(job_id, job_task_id):
     return job_names
 
 
-def add_to_database(dset, run_info, message):
+def add_to_database(dset, run_info, message, output_files, output_dirs, prefix_dirs):
     """Add a `datalad schedule` command to an sqlite database."""
     con, cur = connect_to_database(dset)
     if not cur or not con:
@@ -1128,6 +1131,55 @@ def add_to_database(dset, run_info, message):
      outputs_json,
      slurm_outputs_json,
      run_info["pwd"]))
+    
+    # now create the tables with the locked_prefixes and locked_names
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS locked_prefixes (
+    slurm_job_id INTEGER,
+    prefix TEXT )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS locked_dir_names (
+    slurm_job_id INTEGER,
+    dir_name TEXT )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS locked_file_names (
+    slurm_job_id INTEGER,
+    file_name TEXT )
+    """)
+
+    if output_files:
+        for output_file in output_files:
+                cur.execute("""
+                INSERT INTO locked_file_names (slurm_job_id,
+                file_name)
+                VALUES (?, ?)
+                """,
+                (run_info["slurm_job_id"],
+                 output_file))
+    
+    if output_dirs:
+        for output_dir in output_dirs:
+            cur.execute("""
+                INSERT INTO locked_dir_names (slurm_job_id,
+                dir_name)
+                VALUES (?, ?)
+                """,
+                (run_info["slurm_job_id"],
+                 output_dir))
+
+    if prefix_dirs:
+        for prefix_dir in prefix_dirs:
+            cur.execute("""
+                INSERT INTO locked_prefixes (slurm_job_id,
+                prefix)
+                VALUES (?, ?)
+                """,
+                (run_info["slurm_job_id"],
+                 prefix_dir))
     
     # save and close
     con.commit()
