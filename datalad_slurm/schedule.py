@@ -594,9 +594,9 @@ def run_command(
                 ds=ds,
                 status="error",
                 message=(
-                    "There are conflicting outputs with the previously scheduled jobs: {}. \n"
+                    "There are conflicting outputs with previously scheduled jobs. "
                     "Finish those jobs or adjust output for the current job first."
-                ).format(output_conflict),
+                )
             )
             return
 
@@ -833,27 +833,34 @@ def check_output_conflict(dset, outputs, output_prefixes):
               or if database error occurs.
     """
     # Connect to database
-    con, cur = connect_to_database(dset)
+    con, cur = connect_to_database(dset, row_factory=True)
     if not con or not cur:
         return None, None
 
     # Get all existing outputs from database
     try:
-        cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
-        existing_records = cur.fetchall()
+        # first check the CURRENT NAMES against PRIOR PREFIXES
+        cur.execute("SELECT prefix FROM locked_prefixes")
+        existing_prefixes = cur.fetchall()
+        has_match = bool(set(existing_prefixes) & set(outputs))
+        if has_match:
+            return True, True
+        
+        # now check CURRENT PREFIXES and against PRIOR NAMES
+        cur.execute("SELECT name FROM locked_names")
+        existing_names = cur.fetchall()
+        has_match = bool(set(existing_names) & set(output_prefixes))
+        if has_match:
+            return True, True
 
-        # Check each record for conflicts
-        conflicting_jobs = []
-        for job_id, json_outputs in existing_records:
-            try:
-                existing_outputs = json.loads(json_outputs)
-                if set(outputs) & set(existing_outputs):
-                    conflicting_jobs.append(job_id)
-            except json.JSONDecodeError:
-                continue
+        # now check CURRENT NAMES and against PRIOR NAMES
+        has_match = bool(set(existing_names) & set(outputs))
+        if has_match:
+            return True, True
+
     except sqlite3.Error:
-        conflicting_jobs = []
-    return conflicting_jobs, True
+        return False, True
+    return False, True
 
 def get_sub_paths(paths):
     r"""
