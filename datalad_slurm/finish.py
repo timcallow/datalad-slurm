@@ -540,20 +540,15 @@ def remove_from_database(dset, run_info):
     """, (run_info["slurm_job_id"],))
 
     cur.execute("""
-    DELETE FROM locked_file_names 
-    WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
-
-    cur.execute("""
-    DELETE FROM locked_dir_names
-    WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
-
-    cur.execute("""
     DELETE FROM locked_prefixes
     WHERE slurm_job_id = ?
     """, (run_info["slurm_job_id"],))
-    
+
+    cur.execute("""
+    DELETE FROM locked_names
+    WHERE slurm_job_id = ?
+    """, (run_info["slurm_job_id"],))
+
     con.commit()
     con.close()
     return "ok"

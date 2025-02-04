@@ -205,20 +205,9 @@ class Schedule(Interface):
             :command:`datalad get .`". The value can also be a glob. [CMD: This
             option can be given more than once. CMD]""",
         ),
-        output_files=Parameter(
-            args=("--output-file",),
-            dest="output_files",
-            metavar=("PATH"),
-            action="append",
-            doc="""Prepare this relative path to be an output file of the command. A
-            value of "." means "run :command:`datalad unlock .`" (and will fail
-            if some content isn't present). For any other value, if the content
-            of this file is present, unlock the file. Otherwise, remove it.
-            [CMD: This option can be given more than once. CMD]""",
-        ),
-        output_dirs=Parameter(
-            args=("--output-dir",),
-            dest="output_dirs",
+        outputs=Parameter(
+            args=("-o", "--output",),
+            dest="outputs",
             metavar=("PATH"),
             action="append",
             doc="""Prepare this relative path to be an output file of the command. A
@@ -283,8 +272,7 @@ class Schedule(Interface):
         *,
         dataset=None,
         inputs=None,
-        output_files=None,
-        output_dirs=None,
+        outputs=None,
         expand=None,
         assume_ready=None,
         message=None,
@@ -296,8 +284,7 @@ class Schedule(Interface):
             cmd,
             dataset=dataset,
             inputs=inputs,
-            output_files=output_files,
-            output_dirs=output_dirs,
+            outputs=outputs,
             expand=expand,
             assume_ready=assume_ready,
             message=message,
@@ -446,8 +433,7 @@ def run_command(
     cmd,
     dataset=None,
     inputs=None,
-    output_files=None,
-    output_dirs=None,
+    outputs=None,
     expand=None,
     assume_ready=None,
     message=None,
@@ -525,8 +511,7 @@ def run_command(
         for k, v in (
             ("inputs", inputs),
             ("extra_inputs", extra_inputs),
-            ("output_files", output_files),
-            ("output_dirs", output_dirs),
+            ("outputs", outputs)
         )
     }
 
@@ -564,30 +549,16 @@ def run_command(
             return
 
     wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
-
-    if output_files:
-        if any(char in output for char in wildcard_list for output in output_files):
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "Wildcards in output_files are forbidden due to potential conflicts."
-                ),
-            )
-            return
-
-    if output_dirs:
-        if any(char in output for char in wildcard_list for output in output_dirs):
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "Wildcards in output_dirs are forbidden due to potential conflicts."
-                ),
-            )
-            return
+    if any(char in output for char in wildcard_list for output in outputs):
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="impossible",
+            message=(
+                "Wildcards in output_files are forbidden due to potential conflicts."
+            ),
+        )
+        return
 
     # everything below expects the string-form of the command
     cmd = normalize_command(cmd)
@@ -603,12 +574,12 @@ def run_command(
     expanded_specs = {k: _format_iospecs(v, **cmd_fmt_kwargs) for k, v in specs.items()}
 
     # get all the prefixes of the outputs
-    locked_prefixes = get_sub_paths(expanded_specs["output_dirs"]) if output_dirs else None
+    locked_prefixes = get_sub_paths(expanded_specs["outputs"])
 
     # Check for output conflicts HERE
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
-        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["output_files"], expanded_specs["output_dirs"], locked_prefixes)
+        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["outputs"], locked_prefixes)
         if not status_ok:
             yield get_status_dict(
                 "schedule",
@@ -628,19 +599,6 @@ def run_command(
                 ).format(output_conflict),
             )
             return
-
-    # and then convert the output_files and output_dirs into a unified outputs parameter
-    output_files = _none_to_empty_list(specs["output_files"])
-    output_dirs = _none_to_empty_list(specs["output_dirs"])
-    expanded_output_files = _none_to_empty_list(expanded_specs["output_files"])
-    expanded_output_dirs = _none_to_empty_list(expanded_specs["output_dirs"])
-
-    expanded_specs["outputs"] = expanded_output_files + expanded_output_dirs
-    specs["outputs"] = output_files + output_dirs
-    del expanded_specs["output_files"]
-    del expanded_specs["output_dirs"]
-    del specs["output_files"]
-    del specs["output_dirs"]
 
     # try-expect to catch expansion issues in _format_iospecs() which
     # expands placeholders in dependency/output specification before
@@ -819,7 +777,7 @@ def run_command(
     else:
         status = "ok"
 
-    status_ok = add_to_database(ds, run_info, msg, expanded_output_files, expanded_output_dirs, locked_prefixes)
+    status_ok = add_to_database(ds, run_info, msg, globbed["outputs"].paths, locked_prefixes)
     if not status_ok:
         yield get_status_dict(
             "schedule",
@@ -862,7 +820,7 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
-def check_output_conflict(dset, output_files, output_dirs, output_prefixes):
+def check_output_conflict(dset, outputs, output_prefixes):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
     
@@ -1070,7 +1028,7 @@ def generate_array_job_names(job_id, job_task_id):
     return job_names
 
 
-def add_to_database(dset, run_info, message, output_files, output_dirs, prefix_dirs):
+def add_to_database(dset, run_info, message, outputs, prefixes):
     """Add a `datalad schedule` command to an sqlite database."""
     con, cur = connect_to_database(dset)
     if not cur or not con:
@@ -1140,46 +1098,29 @@ def add_to_database(dset, run_info, message, output_files, output_dirs, prefix_d
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS locked_dir_names (
+    CREATE TABLE IF NOT EXISTS locked_names (
     slurm_job_id INTEGER,
-    dir_name TEXT )
+    name TEXT )
     """)
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS locked_file_names (
-    slurm_job_id INTEGER,
-    file_name TEXT )
-    """)
+    for output in outputs:
+        cur.execute("""
+        INSERT INTO locked_names (slurm_job_id,
+        name)
+        VALUES (?, ?)
+        """,
+        (run_info["slurm_job_id"],
+         output))
 
-    if output_files:
-        for output_file in output_files:
-                cur.execute("""
-                INSERT INTO locked_file_names (slurm_job_id,
-                file_name)
-                VALUES (?, ?)
-                """,
-                (run_info["slurm_job_id"],
-                 output_file))
-    
-    if output_dirs:
-        for output_dir in output_dirs:
+    if prefixes:
+        for prefix in prefixes:
             cur.execute("""
-                INSERT INTO locked_dir_names (slurm_job_id,
-                dir_name)
-                VALUES (?, ?)
-                """,
-                (run_info["slurm_job_id"],
-                 output_dir))
-
-    if prefix_dirs:
-        for prefix_dir in prefix_dirs:
-            cur.execute("""
-                INSERT INTO locked_prefixes (slurm_job_id,
-                prefix)
-                VALUES (?, ?)
-                """,
-                (run_info["slurm_job_id"],
-                 prefix_dir))
+            INSERT INTO locked_prefixes (slurm_job_id,
+            prefix)
+            VALUES (?, ?)
+            """,
+            (run_info["slurm_job_id"],
+             prefix))
     
     # save and close
     con.commit()
