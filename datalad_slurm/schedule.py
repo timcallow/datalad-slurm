@@ -515,6 +515,8 @@ def run_command(
         )
     }
 
+    specs["outputs"] = [output.rstrip("/") for output in specs["outputs"]]
+
     rel_pwd = rerun_info.get("pwd") if rerun_info else None
     if rel_pwd and dataset:
         # recording is relative to the dataset
@@ -866,7 +868,7 @@ def get_sub_paths(paths):
     r"""
     Extract sub-paths from directories. 
 
-    E.g. /a/b/c/d/ -> /a/, /a/b/c/
+    E.g. /a/b/c/d/ -> /a, /a/b, /a/b/c
     """
     # Set to store unique sub-paths
     all_sub_paths = set()
@@ -881,8 +883,8 @@ def get_sub_paths(paths):
         # Build sub-paths, excluding the full path
         current_path = ''
         for component in components[:-1]:  # Stop before the last component
-            current_path += component + '/'
-            all_sub_paths.add(current_path)
+            current_path += component + "/"
+            all_sub_paths.add(current_path.rstrip("/"))
     
     # Convert set to sorted list for consistent output
     return sorted(list(all_sub_paths))
@@ -1117,7 +1119,7 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
         VALUES (?, ?)
         """,
         (run_info["slurm_job_id"],
-         output))
+         output.rstrip("/")))
 
     if prefixes:
         for prefix in prefixes:
