@@ -58,11 +58,10 @@ datalad save -m "add test job dirs and scripts"
 for i in $TARGETS ; do
 
     DIR="test_06_output_dir_"$i
-    FILE="output_test_array_*.txt"
 
     cd $DIR
-    echo datalad schedule -o $PWD/$FILE --allow-wildcard-outputs sbatch slurm.sh $i
-    datalad schedule -o $PWD/$FILE --allow-wildcard-outputs sbatch slurm.sh $i
+    echo datalad schedule -o $PWD sbatch slurm.sh
+    datalad schedule -o $PWD sbatch slurm.sh
     cd ..
 
 done
