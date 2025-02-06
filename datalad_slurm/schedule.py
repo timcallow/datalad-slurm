@@ -594,7 +594,7 @@ def run_command(
             yield get_status_dict(
                 "schedule",
                 ds=ds,
-                status="error",
+                status="impossible",
                 message=(
                     "There are conflicting outputs with previously scheduled jobs. "
                     "Finish those jobs or adjust output for the current job first."
@@ -692,7 +692,6 @@ def run_command(
             if expand in ["both"] + (["outputs"] if k == "outputs" else ["inputs"])
             else (v if parametric_record else expanded_specs[k]) or []
         )
-    
 
     if rel_pwd is not None:
         # only when inside the dataset to not leak information
@@ -778,8 +777,8 @@ def run_command(
         status = "error"
     else:
         status = "ok"
-
-    status_ok = add_to_database(ds, run_info, msg, globbed["outputs"].paths, locked_prefixes)
+    
+    status_ok = add_to_database(ds, run_info, msg, expanded_specs["outputs"], locked_prefixes)
     if not status_ok:
         yield get_status_dict(
             "schedule",
