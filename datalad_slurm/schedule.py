@@ -515,7 +515,7 @@ def run_command(
         )
     }
 
-    specs["outputs"] = [output.rstrip("/") for output in specs["outputs"]]
+
 
     rel_pwd = rerun_info.get("pwd") if rerun_info else None
     if rel_pwd and dataset:
@@ -531,6 +531,19 @@ def run_command(
     ds_path = ds.path
 
     lgr.debug("tracking command output underneath %s", ds)
+
+    if not outputs:
+        yield get_status_dict(
+            "schedule",
+            ds=ds,
+            status="impossible",
+            message=(
+                "At least one output must be specified for datalad schedule."
+            ),
+        )
+        return
+
+    specs["outputs"] = [output.rstrip("/") for output in specs["outputs"]]
 
     # skip for callers that already take care of this
     if not (skip_dirtycheck or rerun_info or inject):
