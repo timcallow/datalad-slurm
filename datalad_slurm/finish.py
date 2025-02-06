@@ -533,12 +533,22 @@ def remove_from_database(dset, run_info):
     """Remove a job from the database based on its slurm_job_id."""
     con, cur = connect_to_database(dset)
     
-    # Remove the row matching the slurm_job_id
+    # Remove the rows matching the slurm_job_id from all the tables
     cur.execute("""
     DELETE FROM open_jobs 
     WHERE slurm_job_id = ?
     """, (run_info["slurm_job_id"],))
-    
+
+    cur.execute("""
+    DELETE FROM locked_prefixes
+    WHERE slurm_job_id = ?
+    """, (run_info["slurm_job_id"],))
+
+    cur.execute("""
+    DELETE FROM locked_names
+    WHERE slurm_job_id = ?
+    """, (run_info["slurm_job_id"],))
+
     con.commit()
     con.close()
     return "ok"

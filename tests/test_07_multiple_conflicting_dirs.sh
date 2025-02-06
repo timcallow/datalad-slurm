@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e # abort on errors
+set +e # do NOT abort on errors
 
 # Test datalad 'schedule' and 'finish' functionality
 #   - 'datalad schedule' several jobs with the same output dir but different output file names
@@ -29,7 +29,7 @@ echo "from src dir "$B
 
 ## create a test repo
 
-TESTDIR=$D/"datalad-slurm-test-04_"`date -Is|tr -d ":"`
+TESTDIR=$D/"datalad-slurm-test-07_"`date -Is|tr -d ":"`
 
 datalad create -c text2git $TESTDIR
 
@@ -39,45 +39,57 @@ datalad create -c text2git $TESTDIR
 
 cp $B/slurm_test03.template.sh $TESTDIR/slurm.template.sh
 cd $TESTDIR
-
-TARGETS=`seq 29 33`
+MAINDIR=$PWD
 
 DIR="test_04_output_dir_for_all"
 mkdir -p $DIR
-cp slurm.template.sh $DIR/slurm.sh
 
-datalad save -m "add test job dir and script"
+# First we schedule jobs which don't conflict
+echo "    --> try to schedule permitted jobs"
 
-cd $DIR
+SUBDIRS1=($DIR"/OUTPUT1/" $DIR"/OUTPUT2/" $DIR"/OUTPUT3a/OUTPUT3b/")
 
-for i in $TARGETS ; do
+for SUBDIR in "${SUBDIRS1[@]}"; do
+    cd $MAINDIR
+    mkdir -p $SUBDIR
 
-    OUTPUTFILENAME="test_04_output_file_"$i
+    cp slurm.template.sh $SUBDIR/slurm.sh
 
-    echo datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
-    datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
+    datalad save -m "add test job dir and script"
+
+    cd $SUBDIR
+
+    OUTPUTFILENAME="test_07_output_file"
+
+    echo datalad schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
+    datalad schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
 
 done
-
-cd ..
 
 sleep 5s
 
 echo "    --> now try to schedule conflicting jobs"
 
-cd $DIR
+SUBDIRS2=($DIR"/OUTPUT1/" $DIR"/OUTPUT2/OUTPUT2b/" $DIR"/OUTPUT3a/")
 
-for i in $TARGETS ; do
+for SUBDIR in "${SUBDIRS2[@]}"; do
+    cd $MAINDIR
+    mkdir -p $SUBDIR
 
-    OUTPUTFILENAME="test_04_output_file_"$i
+    cp slurm.template.sh $SUBDIR/slurm.sh
 
-    echo datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
-    datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
+    datalad save -m "add test job dir and script"
+
+    OUTPUTFILENAME="test_07_output_file"
+
+    echo datalad schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
+    datalad schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
+
+    cd $SUBDIR
 
 done
 
-cd ..
-
+cd $MAINDIR
 
 while [[ 0 != `squeue -u $USER | grep "DLtest03" | wc -l` ]] ; do
 

@@ -206,18 +206,14 @@ class Schedule(Interface):
             option can be given more than once. CMD]""",
         ),
         outputs=Parameter(
-            args=("-o", "--output"),
+            args=("-o", "--output",),
             dest="outputs",
             metavar=("PATH"),
             action="append",
             doc="""Prepare this relative path to be an output file of the command. A
             value of "." means "run :command:`datalad unlock .`" (and will fail
             if some content isn't present). For any other value, if the content
-            of this file is present, unlock the file. Otherwise, remove it. The
-            value can also be a glob if --allow-wildcard-outputs is enabled.
-            N.B.: If outputs contain wildcards, it is esssential to enclose them in
-            quotations, e.g. -o "file*.txt", NOT -o file*.txt. This is so that wildcard
-            expansion is performed inside datalad-slurm and not on the command line.
+            of this file is present, unlock the file. Otherwise, remove it.
             [CMD: This option can be given more than once. CMD]""",
         ),
         expand=Parameter(
@@ -225,16 +221,6 @@ class Schedule(Interface):
             doc="""Expand globs when storing inputs and/or outputs in the
             commit message.""",
             constraints=EnsureChoice(None, "inputs", "outputs", "both"),
-        ),
-        allow_wildcard_outputs=Parameter(
-            args=("--allow-wildcard-outputs",),
-            action="store_true",
-            doc="""Allow outputs to contain wildcard entries.
-            This is disabled by default because the outputs cannot be expanded
-            at submission time if the files don't exist yet.
-            If enabled, no expansion of wildcards is performed, and only the raw
-            string is checked against raw strings from previous schedule commands.
-            So take care to ensure proper output definitions with this argument enabled.""",
         ),
         assume_ready=assume_ready_opt,
         message=save_message_opt,
@@ -291,7 +277,6 @@ class Schedule(Interface):
         assume_ready=None,
         message=None,
         check_outputs=True,
-        allow_wildcard_outputs=False,
         dry_run=None,
         jobs=None,
     ):
@@ -304,7 +289,6 @@ class Schedule(Interface):
             assume_ready=assume_ready,
             message=message,
             check_outputs=check_outputs,
-            allow_wildcard_outputs=allow_wildcard_outputs,
             dry_run=dry_run,
             jobs=jobs,
         ):
@@ -454,7 +438,6 @@ def run_command(
     assume_ready=None,
     message=None,
     check_outputs=True,
-    allow_wildcard_outputs=False,
     sidecar=None,
     dry_run=False,
     jobs=None,
@@ -528,9 +511,11 @@ def run_command(
         for k, v in (
             ("inputs", inputs),
             ("extra_inputs", extra_inputs),
-            ("outputs", outputs),
+            ("outputs", outputs)
         )
     }
+
+    specs["outputs"] = [output.rstrip("/") for output in specs["outputs"]]
 
     rel_pwd = rerun_info.get("pwd") if rerun_info else None
     if rel_pwd and dataset:
@@ -564,20 +549,18 @@ def run_command(
                 ),
             )
             return
-    
-    if not rerun_info and not allow_wildcard_outputs and outputs:
-        wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
-        if any(char in output for char in wildcard_list for output in outputs):
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "Outputs include wildcards. This error can be disabled "
-                    "with the parameter --allow-wildcard-outputs."
-                ),
-            )
-            return
+
+    wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
+    if any(char in output for char in wildcard_list for output in outputs):
+        yield get_status_dict(
+            "run",
+            ds=ds,
+            status="impossible",
+            message=(
+                "Wildcards in output_files are forbidden due to potential conflicts."
+            ),
+        )
+        return
 
     # everything below expects the string-form of the command
     cmd = normalize_command(cmd)
@@ -591,6 +574,34 @@ def run_command(
 
     # apply the substitution to the IO specs
     expanded_specs = {k: _format_iospecs(v, **cmd_fmt_kwargs) for k, v in specs.items()}
+
+    # get all the prefixes of the outputs
+    locked_prefixes = get_sub_paths(expanded_specs["outputs"])
+
+    # Check for output conflicts HERE
+    # now check history of outputs in un-finished slurm commands
+    if check_outputs:
+        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["outputs"], locked_prefixes)
+        if not status_ok:
+            yield get_status_dict(
+                "schedule",
+                ds=ds,
+                status="error",
+                message=("Database connection cannot be established"),
+            )
+            return
+        if output_conflict:
+            yield get_status_dict(
+                "schedule",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "There are conflicting outputs with previously scheduled jobs. "
+                    "Finish those jobs or adjust output for the current job first."
+                )
+            )
+            return
+
     # try-expect to catch expansion issues in _format_iospecs() which
     # expands placeholders in dependency/output specification before
     # globbing
@@ -670,6 +681,7 @@ def run_command(
         # the `or/else []`
         "chain": rerun_info["chain"] if rerun_info else [],
     }
+
     # for all following we need to make sure that the raw
     # specifications, incl. any placeholders make it into
     # the run-record to enable "parametric" re-runs
@@ -704,33 +716,13 @@ def run_command(
         )
         return
 
-    # now check history of outputs in un-finished slurm commands
-    if check_outputs:
-        output_conflict, status_ok = check_output_conflict(ds, run_info["outputs"])
-        if not status_ok:
-            yield get_status_dict(
-                "schedule",
-                ds=ds,
-                status="error",
-                message=("Database connection cannot be established"),
-            )
-            return
-        if output_conflict:
-            yield get_status_dict(
-                "schedule",
-                ds=ds,
-                status="error",
-                message=(
-                    "There are conflicting outputs with the previously scheduled jobs: {}. \n"
-                    "Finish those jobs or adjust output for the current job first."
-                ).format(output_conflict),
-            )
-            return
+
     
     # TODO what happens in case of inject??
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
         run_info["exit"] = cmd_exitcode
+        # TODO: expand these paths
         slurm_outputs, slurm_env_file = get_slurm_output_files(slurm_job_id)
         run_info["outputs"].extend(slurm_outputs)
         run_info["outputs"].append(slurm_env_file)
@@ -785,8 +777,8 @@ def run_command(
         status = "error"
     else:
         status = "ok"
-
-    status_ok = add_to_database(ds, run_info, msg)
+    
+    status_ok = add_to_database(ds, run_info, msg, expanded_specs["outputs"], locked_prefixes)
     if not status_ok:
         yield get_status_dict(
             "schedule",
@@ -829,7 +821,7 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
-def check_output_conflict(dset, outputs):
+def check_output_conflict(dset, outputs, output_prefixes):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
     
@@ -842,27 +834,59 @@ def check_output_conflict(dset, outputs):
               or if database error occurs.
     """
     # Connect to database
-    con, cur = connect_to_database(dset)
+    con, cur = connect_to_database(dset, row_factory=True)
     if not con or not cur:
         return None, None
 
     # Get all existing outputs from database
     try:
-        cur.execute("SELECT slurm_job_id, outputs FROM open_jobs")
-        existing_records = cur.fetchall()
+        # first check the CURRENT NAMES against PRIOR PREFIXES
+        cur.execute("SELECT prefix FROM locked_prefixes")
+        existing_prefixes = cur.fetchall()
+        has_match = bool(set(existing_prefixes) & set(outputs))
+        if has_match:
+            return True, True
+        
+        # now check CURRENT PREFIXES and against PRIOR NAMES
+        cur.execute("SELECT name FROM locked_names")
+        existing_names = cur.fetchall()
+        has_match = bool(set(existing_names) & set(output_prefixes))
+        if has_match:
+            return True, True
 
-        # Check each record for conflicts
-        conflicting_jobs = []
-        for job_id, json_outputs in existing_records:
-            try:
-                existing_outputs = json.loads(json_outputs)
-                if set(outputs) & set(existing_outputs):
-                    conflicting_jobs.append(job_id)
-            except json.JSONDecodeError:
-                continue
+        # now check CURRENT NAMES and against PRIOR NAMES
+        has_match = bool(set(existing_names) & set(outputs))
+        if has_match:
+            return True, True
+
     except sqlite3.Error:
-        conflicting_jobs = []
-    return conflicting_jobs, True
+        return False, True
+    return False, True
+
+def get_sub_paths(paths):
+    r"""
+    Extract sub-paths from directories. 
+
+    E.g. /a/b/c/d/ -> /a, /a/b, /a/b/c
+    """
+    # Set to store unique sub-paths
+    all_sub_paths = set()
+    
+    for path in paths:
+        # Remove trailing slash if present
+        path = path.rstrip('/')
+        
+        # Split the path into components
+        components = path.split('/')
+        
+        # Build sub-paths, excluding the full path
+        current_path = ''
+        for component in components[:-1]:  # Stop before the last component
+            current_path += component + "/"
+            all_sub_paths.add(current_path.rstrip("/"))
+    
+    # Convert set to sorted list for consistent output
+    return sorted(list(all_sub_paths))
 
 
 def get_slurm_output_files(job_id):
@@ -1012,7 +1036,7 @@ def generate_array_job_names(job_id, job_task_id):
     return job_names
 
 
-def add_to_database(dset, run_info, message):
+def add_to_database(dset, run_info, message, outputs, prefixes):
     """Add a `datalad schedule` command to an sqlite database."""
     con, cur = connect_to_database(dset)
     if not cur or not con:
@@ -1074,12 +1098,46 @@ def add_to_database(dset, run_info, message):
      slurm_outputs_json,
      run_info["pwd"]))
     
+    # now create the tables with the locked_prefixes and locked_names
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS locked_prefixes (
+    slurm_job_id INTEGER,
+    prefix TEXT )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS locked_names (
+    slurm_job_id INTEGER,
+    name TEXT )
+    """)
+
+    for output in outputs:
+        cur.execute("""
+        INSERT INTO locked_names (slurm_job_id,
+        name)
+        VALUES (?, ?)
+        """,
+        (run_info["slurm_job_id"],
+         output.rstrip("/")))
+
+    if prefixes:
+        for prefix in prefixes:
+            cur.execute("""
+            INSERT INTO locked_prefixes (slurm_job_id,
+            prefix)
+            VALUES (?, ?)
+            """,
+            (run_info["slurm_job_id"],
+             prefix))
+    
     # save and close
     con.commit()
     con.close()
 
     return True
-    
+
+def _none_to_empty_list(value):
+    return [] if value is None else value
 
     
     
