@@ -180,6 +180,17 @@ class Finish(Interface):
             dataset, check_installed=True, purpose="finish a SLURM job"
         )
         ds_repo = ds.repo
+
+        if outputs and not slurm_job_id:
+            yield get_status_dict(
+                    "finish",
+                    ds=ds,
+                    status="impossible",
+                    message=("If specifying outputs with datalad finish, "
+                             "a specific slurm job id must be given."),
+                )
+            return                                    
+
         if slurm_job_id:
             slurm_job_id_list = [slurm_job_id]
         else:
