@@ -90,6 +90,9 @@ datalad finish --list-open-jobs
 echo "finishing completed jobs:"
 datalad finish
 
+echo "closing failed jobs:"
+datalad finish --close-failed-jobs
+
 #echo " ### git log in this repo ### "
 #echo ""
 #git log
