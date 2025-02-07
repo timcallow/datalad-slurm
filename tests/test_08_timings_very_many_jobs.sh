@@ -19,6 +19,14 @@ fi
 
 D=$1
 
+# optionmal second argument for how many extra output specs should be given per job
+NUMOUTEXTRA=$2 
+if [[ -z $NUMOUTEXTRA ]] ; then
+
+    NUMOUTEXTRA=0
+fi
+
+
 echo "start"
 
 B=`dirname $0`
@@ -93,10 +101,19 @@ for i in $TARGETS ; do
     M=$(($i%100))
     DIR="$M/test_08_output_dir_$i"
 
-    echo -n $i" ">>timing_schedule.txt
-    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR sbatch --chdir $DIR slurm.sh
+    EXTRAOUT=""
+    for e in `seq $NUMOUTEXTRA`; do
 
-    sleep 0.1s
+        EXTRAOUT=$EXTRAOUT" -o IDONTEXIST$e/test_08_output_dir_$i/test$e.txt"
+    done
+
+    echo "    running: datalad schedule -o $DIR $EXTRAOUT sbatch --chdir $DIR slurm.sh"
+
+
+    echo -n $i" ">>timing_schedule.txt
+    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR $EXTRAOUT sbatch --chdir $DIR slurm.sh
+
+    sleep 0.01s
 
     ## run this only every 100 rounds
     ## disabled because it gets very slow after 1000 jobs or so
