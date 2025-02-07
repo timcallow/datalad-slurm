@@ -99,10 +99,11 @@ for i in $TARGETS ; do
     sleep 0.1s
 
     ## run this only every 100 rounds
-    if [[ 0 == $M ]]; then
-        echo -n $i" ">>timing_finish-list.txt
-        /usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad finish --list-open-jobs
-    fi
+    ## disabled because it gets very slow after 1000 jobs or so
+    #if [[ 0 == $M ]]; then
+    #    echo -n $i" ">>timing_finish-list.txt
+    #    /usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad finish --list-open-jobs
+    #fi
 done
 
 while [[ 0 != `squeue -u $USER | grep "DLtest08" | wc -l` ]] ; do
