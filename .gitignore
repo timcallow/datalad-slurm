@@ -13,3 +13,5 @@ build/
 dist/
 .idea/
 venvs/
+tests/slurm_config.txt
+tests/slurm.template.sh

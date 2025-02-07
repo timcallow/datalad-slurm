@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e # abort on errors
+set +e # continue on errors
 
 # Test datalad 'schedule' and 'finish --list-open-jobs' and 'finish' functionality
 #   - measure how long they take with growing git log length
@@ -34,8 +34,39 @@ datalad create -c text2git $TESTDIR
 
 ### generic part for all the tests ending here, specific parts follow ###
 
+if [ ! -f "slurm_config.txt" ]; then
+    echo "Error: slurm_config.txt must exist"
+    echo "Please see slurm_config_sample.txt for a template"
+    exit -1
+fi
 
-cp $B/slurm_test08.template.sh $TESTDIR/slurm.template.sh
+source slurm_config.txt
+
+# Create the script
+cat <<EOF > $TESTDIR/slurm.template.sh
+#!/bin/bash
+#SBATCH --job-name="DLtest08"         # name of the job
+#SBATCH --partition=casus             # partition to be used (defq, gpu or intel)
+#SBATCH -A casus
+#SBATCH --time=0:02:00                # walltime (up to 96 hours)
+#SBATCH --ntasks=1                    # number of nodes
+#SBATCH --cpus-per-task=1             # number of tasks per node
+#SBATCH --output=log.slurm-%j.out
+echo "started"
+OUTPUT="output_test_"\$(date -Is|tr -d ":").txt
+# simulate some text output
+for i in \$(seq 1 20); do
+   echo \$i | tee -a \$OUTPUT
+   sleep 1s
+done
+# simulate some binary output which will become an annex file
+bzip2 -k \$OUTPUT
+echo "ended"
+EOF
+
+# Make the script executable
+chmod u+x $TESTDIR/slurm.template.sh
+
 cd $TESTDIR
 
 TARGETS=`seq 1 100`
