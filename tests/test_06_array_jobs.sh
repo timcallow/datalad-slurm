@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set +e # continue on errors
+set -e # abort on errors
 
 # Test how datalad 'schedule' and 'finish' handle failed jobs
 #   - create some job dirs and job scripts and 'commit' them
@@ -37,9 +37,39 @@ datalad create -c text2git $TESTDIR
 
 
 ### generic part for all the tests ending here, specific parts follow ###
+if [ ! -f "slurm_config.txt" ]; then
+    echo "Error: slurm_config.txt must exist"
+    echo "Please see slurm_config_sample.txt for a template"
+    exit -1
+fi
 
+source slurm_config.txt
 
-cp $B/slurm_test06.template.sh $TESTDIR/slurm.template.sh
+cat << EOF > $TESTDIR/slurm.template.sh
+#!/bin/bash
+#SBATCH --job-name="DLtest06"         # name of the job
+#SBATCH --partition=$partition
+#SBATCH -A $account
+#SBATCH --time=0:05:00                # walltime (up to 96 hours)
+#SBATCH --ntasks=1                    # number of nodes
+#SBATCH --cpus-per-task=1             # number of tasks per node
+#SBATCH --output=log.slurm-%j.out
+#SBATCH --array=1-7:2
+echo "started"
+echo "started"
+OUTPUT="output_test_array_"\$SLURM_ARRAY_TASK_ID".txt"
+# simulate some text output
+for i in \$(seq 1 50); do
+   echo \$i | tee -a \$OUTPUT
+   sleep 1s
+done
+# simulate some binary output which will become an annex file
+bzip2 -k \$OUTPUT
+echo "ended"
+EOF
+
+chmod u+x $TESTDIR/slurm.template.sh
+
 cd $TESTDIR
 
 TARGETS=`seq 41 42`
