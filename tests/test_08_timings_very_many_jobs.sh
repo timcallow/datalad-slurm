@@ -54,7 +54,7 @@ source slurm_config.txt
 cat <<EOF > $TESTDIR/slurm.template.sh
 #!/bin/bash
 #SBATCH --job-name="DLtest08"         # name of the job
-#SBATCH --partition=casus             # partition to be used (defq, gpu or intel)
+#SBATCH --partition=defq              # partition to be used (defq, gpu or intel)
 #SBATCH -A casus
 #SBATCH --time=0:02:00                # walltime (up to 96 hours)
 #SBATCH --ntasks=1                    # number of nodes
@@ -94,8 +94,8 @@ done
 datalad save -m "add test job dirs and scripts"
 
 echo "Schedule jobs:"
-echo "# num_jobs time">timing_schedule.txt
-echo "# num_jobs time">timing_finish-list.txt
+echo "num_jobs time">timing_schedule.txt
+echo "num_jobs time">timing_finish-list.txt
 for i in $TARGETS ; do
 
     M=$(($i%100))
@@ -113,7 +113,7 @@ for i in $TARGETS ; do
     echo -n $i" ">>timing_schedule.txt
     /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR $EXTRAOUT sbatch --chdir $DIR slurm.sh
 
-    sleep 0.01s
+    sleep 0.1s
 
     ## run this only every 100 rounds
     ## disabled because it gets very slow after 1000 jobs or so
@@ -123,13 +123,15 @@ for i in $TARGETS ; do
     #fi
 done
 
+
+
 while [[ 0 != `squeue -u $USER | grep "DLtest08" | wc -l` ]] ; do
 
     echo "    ... wait for jobs to finish"
     sleep 1m
 done
 
-echo "done waiting"
+echo "done waiting" 
 
 echo "finishing completed jobs:"
 /usr/bin/time -f "%e" -o timing_finish.txt -a datalad finish
