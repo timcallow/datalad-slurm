@@ -26,6 +26,7 @@ if [[ -z $NUMOUTEXTRA ]] ; then
     NUMOUTEXTRA=0
 fi
 
+LIMITJOBS=500 ## max number of jobs to schedule
 
 echo "start"
 
@@ -113,7 +114,15 @@ for i in $TARGETS ; do
     echo -n $i" ">>timing_schedule.txt
     /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR $EXTRAOUT sbatch --chdir $DIR slurm.sh
 
-    sleep 0.1s
+    sleep 1s
+
+    if [[ 0 == $M ]]; then
+        while [[ $LIMITJOBS < `squeue -u $USER | grep "DLtest08" | wc -l` ]] ; do
+
+            echo "    ... wait for jobs to finish inbetween"
+            sleep 30s
+        done
+    fi
 
     ## run this only every 100 rounds
     ## disabled because it gets very slow after 1000 jobs or so
