@@ -302,27 +302,12 @@ def finish_cmd(
                 yield get_status_dict("finish", status="error", message=message)
                 return
             else:
-                if job_status_group != "PARTIALLY COMPLETED":
-                    # remove the job
-                    status = remove_from_database(ds, run_info)
-                    message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
-                    yield get_status_dict("finish", status="ok", message=message)
-                    return            
+                # remove the job
+                status = remove_from_database(ds, run_info)
+                message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
+                yield get_status_dict("finish", status="ok", message=message)
+                return            
         
-    # if array job is partially succesful then we close it succesfully
-    if job_status_group == "PARTIALLY COMPLETED":
-        # TODO path
-        array_filename = f"array-job-info-{slurm_job_id}.out"
-        yield get_status_dict(
-            "finish",
-            status="ok",
-            message=f"Some array jobs failed / cancelled."
-            f" Job breakdown is wrriten to {array_filename}.",
-        )
-        with open(array_filename, "w") as f:
-            f.write(status_text)
-        outputs_to_save.append(array_filename)
-
     # expand the wildcards
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
 
@@ -477,9 +462,9 @@ def get_job_status(job_id):
             job_status_group = unique_statuses.pop()  # Get the single status value
         else:
             if "COMPLETED" in unique_statuses:
-                job_status_group = "PARTIALLY COMPLETED"
+                job_status_group = "ARRAY FAILED (SOME COMPLETE)"
             else:
-                job_status_group = "FAILED (MIXED)"
+                job_status_group = "ARRAY FAILED (MULTIPLE CAUSES)"
 
         return job_states, job_status_group
 
