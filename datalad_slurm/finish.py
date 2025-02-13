@@ -83,27 +83,6 @@ class Finish(Interface):
             default=None,
             constraints=EnsureStr() | EnsureNone(),
         ),
-        branch=Parameter(
-            metavar="NAME",
-            args=(
-                "-b",
-                "--branch",
-            ),
-            doc="create and checkout this branch before rerunning the commands.",
-            constraints=EnsureStr() | EnsureNone(),
-        ),
-        onto=Parameter(
-            metavar="base",
-            args=("--onto",),
-            doc="""start point for rerunning the commands. If not specified,
-            commands are executed at HEAD. This option can be used to specify
-            an alternative start point, which will be checked out with the
-            branch name specified by [CMD: --branch CMD][PY: `branch` PY] or in
-            a detached state otherwise. As a special case, an empty value for
-            this option means the parent of the first run commit in the
-            specified revision list.""",
-            constraints=EnsureStr() | EnsureNone(),
-        ),
         message=Parameter(
             args=(
                 "-m",
@@ -141,9 +120,7 @@ class Finish(Interface):
             record to be explicit. Don't warn if the repository is dirty, and
             only save modifications to the outputs from the original record.
             Note that when several run commits are specified, this applies to
-            every one. Care should also be taken when using [CMD: --onto
-            CMD][PY: `onto` PY] because checking out a new HEAD can easily fail
-            when the working tree has modifications.""",
+            every one.""",
         ),
         close_failed_jobs=Parameter(
             args=("--close-failed-jobs",),
@@ -169,11 +146,9 @@ class Finish(Interface):
         dataset=None,
         message=None,
         outputs=None,
-        onto=None,
         explicit=True,
         close_failed_jobs=False,
         list_open_jobs=False,
-        branch=None,
         jobs=None,
     ):
         ds = require_dataset(
@@ -194,9 +169,7 @@ class Finish(Interface):
         if slurm_job_id:
             slurm_job_id_list = [slurm_job_id]
         else:
-            slurm_job_id_list, status_ok = get_scheduled_commits(
-                ds, branch
-            )
+            slurm_job_id_list, status_ok = get_scheduled_commits(ds)
             if not status_ok:
                 yield get_status_dict(
                     "finish",
@@ -225,16 +198,14 @@ class Finish(Interface):
                 dataset=dataset,
                 message=message,
                 outputs=outputs,
-                onto=None,
                 explicit=explicit,
                 close_failed_jobs=close_failed_jobs,
-                branch=None,
                 jobs=None,
             ):
                 yield r
 
 
-def get_scheduled_commits(dset, branch):
+def get_scheduled_commits(dset):
     """Return the slurm job ids of all open jobs."""
     # connect to the database
     con, cur = connect_to_database(dset, row_factory=True)
@@ -252,10 +223,8 @@ def finish_cmd(
     dataset=None,
     message=None,
     outputs=None,
-    onto=None,
     explicit=True,
     close_failed_jobs=False,
-    branch=None,
     jobs=None,
 ):
 
@@ -284,32 +253,9 @@ def finish_cmd(
             message="cannot rerun command, nothing recorded",
         )
         return
-
-    # ATTN: Use get_corresponding_branch() rather than is_managed_branch()
-    # for compatibility with a plain GitRepo.
-    if (onto is not None or branch is not None) and ds_repo.get_corresponding_branch():
-        yield get_status_dict(
-            "run",
-            ds=ds,
-            status="impossible",
-            message=(
-                "--%s is incompatible with adjusted branch",
-                "branch" if onto is None else "onto",
-            ),
-        )
-        return
-
-    if branch and branch in ds_repo.get_branches():
-        yield get_status_dict(
-            "run",
-            ds=ds,
-            status="error",
-            message="branch '{}' already exists".format(branch),
-        )
-        return
-
+    
+    # get the open jobs from the database
     results = extract_from_db(ds, slurm_job_id)
-
     if not results:
         yield get_status_dict(
             "finish",
