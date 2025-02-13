@@ -77,30 +77,49 @@ EOF
 chmod u+x $TESTDIR/slurm.template.sh
 
 cd $TESTDIR
+echo "PWD "$PWD
 
-TARGETS=`seq 1 10000`
+TARGETS=`seq 1 1000`
 
-echo "Create job scripts:"
-
+echo "Create jobs:"
 for i in $TARGETS ; do
 
-    M=$(($i%100))
+    M=$(($i%30))
+
+    echo $M/$i
+
     DIR="$M/test_08_output_dir_$i"
-    mkdir -p $DIR
+    mkdir -p $DIR.datalad $DIR.slurm
 
-    cp slurm.template.sh $DIR/slurm.sh
+    cp slurm.template.sh $DIR.datalad/slurm.sh
+    cp slurm.template.sh $DIR.slurm/slurm.sh
 
+    if [[ 0 == $M ]]; then
+
+        echo "################################################################"
+        echo "PWD "$PWD
+        echo datalad save -m "add test job dirs and scripts"
+        datalad save -m "add test job dirs and scripts"
+        echo "################################################################"
+
+    fi
 done
 
+echo "################################################################"
+echo "PWD "$PWD
+echo datalad save -m "add test job dirs and scripts"
 datalad save -m "add test job dirs and scripts"
+echo "################################################################"
 
 echo "Schedule jobs:"
 echo "num_jobs time">timing_schedule.txt
-echo "num_jobs time">timing_finish-list.txt
+echo "num_jobs time">timing_slurm.txt
+#echo "num_jobs time">timing_finish-list.txt
 for i in $TARGETS ; do
 
-    M=$(($i%100))
+    M=$(($i%30))
     DIR="$M/test_08_output_dir_$i"
+    mkdir -p $DIR.datalad $DIR.slurm
 
     EXTRAOUT=""
     for e in `seq $NUMOUTEXTRA`; do
@@ -108,13 +127,17 @@ for i in $TARGETS ; do
         EXTRAOUT=$EXTRAOUT" -o IDONTEXIST$e/test_08_output_dir_$i/test$e.txt"
     done
 
-    echo "    running: datalad schedule -o $DIR $EXTRAOUT sbatch --chdir $DIR slurm.sh"
-
+    echo "    running: datalad schedule -o $DIR.datalad $EXTRAOUT sbatch --chdir $DIR.datalad slurm.sh"
 
     echo -n $i" ">>timing_schedule.txt
-    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR $EXTRAOUT sbatch --chdir $DIR slurm.sh
+    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR.datalad $EXTRAOUT sbatch --chdir $DIR.datalad slurm.sh
 
-    sleep 1s
+    sleep 0.1s
+
+    echo -n $i" ">>timing_slurm.txt
+    /usr/bin/time -f "%e" -o timing_slurm.txt -a sbatch --chdir $DIR.slurm slurm.sh
+
+    sleep 0.1s
 
     if [[ 0 == $M ]]; then
         while [[ $LIMITJOBS < `squeue -u $USER | grep "DLtest08" | wc -l` ]] ; do
