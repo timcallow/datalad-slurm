@@ -116,11 +116,6 @@ class Reschedule(Interface):
     rerun_action value "checkout", in which case the record includes
     information about the revision the would be checked out before rerunning
     any commands.
-
-    .. note::
-      Currently the "onto" feature only sets the working tree of the current
-      dataset to a previous state. The working trees of any subdatasets remain
-      unchanged.
     """
 
     _params_ = dict(
@@ -145,27 +140,6 @@ class Reschedule(Interface):
             parent of the first commit that contains a recorded command (i.e.,
             all commands in :command:`git log REVISION` will be
             re-executed).""",
-            constraints=EnsureStr() | EnsureNone(),
-        ),
-        branch=Parameter(
-            metavar="NAME",
-            args=(
-                "-b",
-                "--branch",
-            ),
-            doc="create and checkout this branch before reschedulening the commands.",
-            constraints=EnsureStr() | EnsureNone(),
-        ),
-        onto=Parameter(
-            metavar="base",
-            args=("--onto",),
-            doc="""start point for rerunning the commands. If not specified,
-            commands are executed at HEAD. This option can be used to specify
-            an alternative start point, which will be checked out with the
-            branch name specified by [CMD: --branch CMD][PY: `branch` PY] or in
-            a detached state otherwise. As a special case, an empty value for
-            this option means the parent of the first run commit in the
-            specified revision list.""",
             constraints=EnsureStr() | EnsureNone(),
         ),
         message=Parameter(
@@ -209,29 +183,14 @@ class Reschedule(Interface):
 
     _examples_ = [
         dict(
-            text="Re-execute the command from the previous commit",
+            text="Re-schedule the command from the previous commit",
             code_py="reschedule()",
             code_cmd="datalad reschedule",
         ),
         dict(
-            text="Re-execute any commands in the last five commits",
+            text="Re-schedule any commands in the last five commits",
             code_py="reschedule(since='HEAD~5')",
             code_cmd="datalad reschedule --since=HEAD~5",
-        ),
-        dict(
-            text="Do the same as above, but re-execute the commands on top of "
-            "HEAD~5 in a detached state",
-            code_py="reschedule(onto='', since='HEAD~5')",
-            code_cmd="datalad reschedule --onto= --since=HEAD~5",
-        ),
-        dict(
-            text="Re-execute all previous commands and compare the old and "
-            "new results",
-            code_cmd="""% # on master branch
-                % datalad reschedule --branch=verify --since=
-                % # now on verify branch
-                % datalad diff --revision=master..
-                % git log --oneline --left-right --cherry-pick master...""",
         ),
     ]
 
@@ -243,9 +202,7 @@ class Reschedule(Interface):
         *,
         since=None,
         dataset=None,
-        branch=None,
         message=None,
-        onto=None,
         script=None,
         report=False,
         assume_ready=None,
@@ -270,28 +227,6 @@ class Reschedule(Interface):
 
         # ATTN: Use get_corresponding_branch() rather than is_managed_branch()
         # for compatibility with a plain GitRepo.
-        if (
-            onto is not None or branch is not None
-        ) and ds_repo.get_corresponding_branch():
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="impossible",
-                message=(
-                    "--%s is incompatible with adjusted branch",
-                    "branch" if onto is None else "onto",
-                ),
-            )
-            return
-
-        if branch and branch in ds_repo.get_branches():
-            yield get_status_dict(
-                "run",
-                ds=ds,
-                status="error",
-                message="branch '{}' already exists".format(branch),
-            )
-            return
 
         # get branch
         rev_branch = (
@@ -312,7 +247,7 @@ class Reschedule(Interface):
         else:
             revrange = "{}..{}".format(since, revision)
 
-        results = _rerun_as_results(ds, revrange, since, branch, onto, message, rev_branch)
+        results = _rerun_as_results(ds, revrange, since, message, rev_branch)
         if script:
             handler = _get_script_handler(script, since, revision)
         elif report:
@@ -362,7 +297,7 @@ def _revrange_as_results(dset, revrange):
         yield dict(res, status="ok")
 
 
-def _rerun_as_results(dset, revrange, since, branch, onto, message, rev_branch):
+def _rerun_as_results(dset, revrange, since, message, rev_branch):
     """Represent the rerun as result records.
 
     In the standard case, the information in these results will be used to
@@ -392,30 +327,7 @@ def _rerun_as_results(dset, revrange, since, branch, onto, message, rev_branch):
         )
         return
 
-    if onto is not None and onto.strip() == "":
-        onto = results[0]["commit"] + "^"
-
-    if onto and not ds_repo.commit_exists(onto):
-        yield get_status_dict(
-            "run",
-            ds=dset,
-            status="error",
-            message=("Revision specified for --onto (%s) does not exist.", onto),
-        )
-        return
-
-    start_point = onto or "HEAD"
-    if branch or onto:
-        yield get_status_dict(
-            "run",
-            ds=dset,
-            # Resolve this to the full hexsha so downstream code gets a
-            # predictable form.
-            commit=ds_repo.get_hexsha(start_point),
-            branch=branch,
-            rerun_action="checkout",
-            status="ok",
-        )
+    start_point = "HEAD"
 
     def skip_or_pick(hexsha, result, msg):
         result["rerun_action"] = "skip-or-pick"
@@ -586,7 +498,7 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
                 dataset=dset,
                 inputs=run_info.get("inputs", []),
                 extra_inputs=run_info.get("extra_inputs", []),
-                output_files=outputs,
+                outputs=outputs,
                 assume_ready=assume_ready,
                 explicit=explicit,
                 rerun_outputs=auto_outputs,
