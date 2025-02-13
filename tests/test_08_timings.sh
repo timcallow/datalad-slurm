@@ -71,6 +71,8 @@ cd $TESTDIR
 
 TARGETS=`seq 1 100`
 
+echo "Create job scripts:"
+
 for i in $TARGETS ; do
 
     DIR="test_08_output_dir_"$i
@@ -82,19 +84,21 @@ done
 
 datalad save -m "add test job dirs and scripts"
 
-
-
+echo "Schedule jobs:"
+echo "# num_jobs time">timing_schedule.txt
+echo "# num_jobs time">timing_finish-list.txt
 for i in $TARGETS ; do
 
     DIR="test_08_output_dir_"$i
 
-    cd $DIR
-    /usr/bin/time -f "%e" -o ../timing_schedule.txt -a datalad schedule -o $PWD sbatch slurm.sh
-    cd ..
+
+    echo -n $i" ">>timing_schedule.txt
+    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR sbatch --chdir $DIR slurm.sh
 
     sleep 0.1s
 
     ## TODO the follwoing line produces a error sometimes: "[ERROR  ] Job 9889098 not found"
+    echo -n $i" ">>timing_finish-list.txt
     /usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad finish --list-open-jobs
 
 done
@@ -106,8 +110,6 @@ while [[ 0 != `squeue -u $USER | grep "DLtest08" | wc -l` ]] ; do
 done
 
 echo "done waiting"
-
-/usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad finish --list-open-jobs
 
 echo "finishing completed jobs:"
 /usr/bin/time -f "%e" -o timing_finish.txt -a datalad finish
