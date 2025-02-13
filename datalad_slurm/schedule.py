@@ -81,7 +81,6 @@ from datalad.core.local.run import (
     _prep_worktree,
     format_command,
     normalize_command,
-    _create_record,
     _format_iospecs,
     _get_substitutions,
 )
@@ -227,19 +226,6 @@ class Schedule(Interface):
         check_outputs=Parameter(
             args=("--check-outputs",),
             doc="""Check previous scheduled commits to see if there is any overlap in the outputs.""",
-            constraints=EnsureNone() | EnsureBool(),
-        ),
-        sidecar=Parameter(
-            args=("--sidecar",),
-            metavar="{yes|no}",
-            doc="""By default, the configuration variable
-            'datalad.run.record-sidecar' determines whether a record with
-            information on a command's execution is placed into a separate
-            record file instead of the commit message (default: off). This
-            option can be used to override the configured behavior on a
-            case-by-case basis. Sidecar files are placed into the dataset's
-            '.datalad/runinfo' directory (customizable via the
-            'datalad.run.record-directory' configuration variable).""",
             constraints=EnsureNone() | EnsureBool(),
         ),
         dry_run=Parameter(
@@ -393,40 +379,12 @@ def _execute_slurm_command(command, pwd):
     return cmd_exitcode or 0, exc, job_id
 
 
-def _create_record(run_info, sidecar_flag, ds):
+def _create_record(run_info):
     """
-    Returns
-    -------
-    str or None, str or None
-      The first value is either the full run record in JSON serialized form,
-      or content-based ID hash, if the record was written to a file. In that
-      latter case, the second value is the path to the record sidecar file,
-      or None otherwise.
+    Create a json record of the schedule command.
     """
     record = json.dumps(run_info, indent=1, sort_keys=True, ensure_ascii=False)
-    if sidecar_flag is None:
-        use_sidecar = ds.config.get("datalad.run.record-sidecar", default=False)
-        use_sidecar = anything2bool(use_sidecar)
-    else:
-        use_sidecar = sidecar_flag
-
-    record_id = None
-    record_path = None
-    if use_sidecar:
-        # record ID is hash of record itself
-        from hashlib import md5
-
-        record_id = md5(record.encode("utf-8")).hexdigest()  # nosec
-        record_dir = ds.config.get(
-            "datalad.run.record-directory", default=op.join(".datalad", "runinfo")
-        )
-        record_path = ds.pathobj / record_dir / record_id
-        if not op.lexists(record_path):
-            # go for compression, even for minimal records not much difference,
-            # despite offset cost
-            # wrap in list -- there is just one record
-            dump2stream([run_info], record_path, compressed=True)
-    return record_id or record, record_path
+    return record
 
 
 def run_command(
@@ -438,7 +396,6 @@ def run_command(
     assume_ready=None,
     message=None,
     check_outputs=True,
-    sidecar=None,
     dry_run=False,
     jobs=None,
     explicit=True,
@@ -761,7 +718,7 @@ def run_command(
 
     # create the run record, either as a string, or written to a file
     # depending on the config/request
-    record, record_path = _create_record(run_info, sidecar, ds)
+    record = _create_record(run_info)
 
     # abbreviate version of the command for illustrative purposes
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
@@ -818,9 +775,6 @@ def run_command(
         # save().
         msg_path=str(msg_path) if msg_path else None,
     )
-    if record_path:
-        # we the record is in a sidecar file, report its ID
-        run_result["record_id"] = record
     for s in ("inputs", "outputs"):
         # this enables callers to further inspect the outputs without
         # performing globbing again. Together with remove_outputs=True
