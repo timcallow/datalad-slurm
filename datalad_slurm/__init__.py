@@ -1,9 +1,10 @@
 """DataLad demo extension"""
 
-__docformat__ = 'restructuredtext'
+__docformat__ = "restructuredtext"
 
 import logging
-lgr = logging.getLogger('datalad.slurm')
+
+lgr = logging.getLogger("datalad.slurm")
 
 # Defines a datalad command suite.
 # This variable must be bound as a setuptools entrypoint
@@ -14,36 +15,37 @@ command_suite = (
     [
         (
             # importable module that contains the schedule command implementation
-            'datalad_slurm.schedule',
+            "datalad_slurm.schedule",
             # name of the command class implementation in above module
-            'Schedule',
+            "Schedule",
             # optional name of the command in the cmdline API
-            'schedule',
+            "schedule",
             # optional name of the command in the Python API
-            'schedule'
+            "schedule",
         ),
         (
             # importable module that contains the schedule command implementation
-            'datalad_slurm.finish',
+            "datalad_slurm.finish",
             # name of the command class implementation in above module
-            'Finish',
+            "Finish",
             # optional name of the command in the cmdline API
-            'finish',
+            "finish",
             # optional name of the command in the Python API
-            'finish'
+            "finish",
         ),
         (
             # importable module that contains the schedule command implementation
-            'datalad_slurm.reschedule',
+            "datalad_slurm.reschedule",
             # name of the command class implementation in above module
-            'Reschedule',
+            "Reschedule",
             # optional name of the command in the cmdline API
-            'reschedule',
+            "reschedule",
             # optional name of the command in the Python API
-            'reschedule'
-        ),                
-    ]
+            "reschedule",
+        ),
+    ],
 )
 
 from . import _version
-__version__ = _version.get_versions()['version']
+
+__version__ = _version.get_versions()["version"]

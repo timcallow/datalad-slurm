@@ -158,13 +158,15 @@ class Finish(Interface):
 
         if outputs and not slurm_job_id:
             yield get_status_dict(
-                    "finish",
-                    ds=ds,
-                    status="impossible",
-                    message=("If specifying outputs with datalad finish, "
-                             "a specific slurm job id must be given."),
-                )
-            return                                    
+                "finish",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "If specifying outputs with datalad finish, "
+                    "a specific slurm job id must be given."
+                ),
+            )
+            return
 
         if slurm_job_id:
             slurm_job_id_list = [slurm_job_id]
@@ -177,7 +179,7 @@ class Finish(Interface):
                     status="error",
                     message=("Database connection cannot be established"),
                 )
-                return                                    
+                return
 
         # list the open jobs if requested
         # if a single commit was specified, nothing happens
@@ -188,9 +190,7 @@ class Finish(Interface):
                 print(f"{'slurm-job-id':<14} {'slurm-job-status'}")
                 for i, slurm_job_id in enumerate(slurm_job_id_list):
                     job_status = get_job_status(slurm_job_id)[1]
-                    print(
-                        f"{slurm_job_id:<10} {job_status}"
-                    )
+                    print(f"{slurm_job_id:<10} {job_status}")
             return
         for slurm_job_id in slurm_job_id_list:
             for r in finish_cmd(
@@ -217,6 +217,7 @@ def get_scheduled_commits(dset):
     slurm_job_ids = cur.fetchall()
 
     return slurm_job_ids, True
+
 
 def finish_cmd(
     slurm_job_id,
@@ -253,16 +254,14 @@ def finish_cmd(
             message="cannot rerun command, nothing recorded",
         )
         return
-    
+
     # get the open jobs from the database
     results = extract_from_db(ds, slurm_job_id)
     if not results:
         yield get_status_dict(
             "finish",
             status="error",
-            message="Error accessing slurm job {} in database".format(
-                commit[:7]
-            ),
+            message="Error accessing slurm job {} in database".format(commit[:7]),
         )
         return
 
@@ -292,9 +291,7 @@ def finish_cmd(
             f"{job_id}: {status}" for job_id, status in job_states.items()
         )
         message = f"Slurm job(s) for job {slurm_job_id} are not complete. Statuses: {status_summary}"
-        if any(
-            status in ["PENDING", "RUNNING"] for status in job_states.values()
-        ):
+        if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
             yield get_status_dict("finish", status="error", message=message)
             return
         else:
@@ -306,8 +303,8 @@ def finish_cmd(
                 status = remove_from_database(ds, run_info)
                 message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
                 yield get_status_dict("finish", status="ok", message=message)
-                return            
-        
+                return
+
     # expand the wildcards
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
 
@@ -334,7 +331,7 @@ def finish_cmd(
         """
     job_status_group = job_status_group.capitalize()
     message_entry = f"Slurm job {slurm_job_id}: {job_status_group}"
-    
+
     # Add the user messages from schedule and finish
     if message:
         message_entry += f"\n\n{message}"
@@ -371,6 +368,7 @@ def finish_cmd(
             ):
                 yield r
 
+
 def extract_from_db(dset, slurm_job_id):
     """Extract the run info from the database entry."""
     con, cur = connect_to_database(dset)
@@ -378,10 +376,10 @@ def extract_from_db(dset, slurm_job_id):
     # select all columns
     query = "SELECT * FROM open_jobs WHERE slurm_job_id = ?"
     cur.execute(query, (slurm_job_id,))
-    
+
     # Fetch the record
     record = cur.fetchone()
-    
+
     if not record:
         return None
 
@@ -391,18 +389,17 @@ def extract_from_db(dset, slurm_job_id):
     # extract as dictionary
     run_info = dict(zip(column_names, record))
 
-
     # convert json columns to list
     json_columns = ["chain", "inputs", "extra_inputs", "outputs", "slurm_outputs"]
 
     for column in json_columns:
         run_info[column] = json.loads(run_info[column])
-    
+
     message = run_info["message"]
     del run_info["message"]
 
     res = {"run_message": message, "run_info": run_info}
-    
+
     return dict(res, status="ok")
 
 
@@ -471,25 +468,35 @@ def get_job_status(job_id):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
 
+
 def remove_from_database(dset, run_info):
     """Remove a job from the database based on its slurm_job_id."""
     con, cur = connect_to_database(dset)
-    
+
     # Remove the rows matching the slurm_job_id from all the tables
-    cur.execute("""
+    cur.execute(
+        """
     DELETE FROM open_jobs 
     WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
+    """,
+        (run_info["slurm_job_id"],),
+    )
 
-    cur.execute("""
+    cur.execute(
+        """
     DELETE FROM locked_prefixes
     WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
+    """,
+        (run_info["slurm_job_id"],),
+    )
 
-    cur.execute("""
+    cur.execute(
+        """
     DELETE FROM locked_names
     WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
+    """,
+        (run_info["slurm_job_id"],),
+    )
 
     con.commit()
     con.close()

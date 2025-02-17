@@ -131,6 +131,7 @@ def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
 
     return finish_exists, True
 
+
 def connect_to_database(dset, row_factory=False):
     """Connect to sqlite3 database and return the connection and cursor."""
     # define the database path from the dataset and branch
@@ -138,7 +139,7 @@ def connect_to_database(dset, row_factory=False):
     branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
     db_name = f"{dset.id}_{branch}.db"
     db_path = dset.pathobj / ".git" / db_name
-    
+
     # try to connect to the database
     try:
         con = sqlite3.connect(db_path)
@@ -147,6 +148,5 @@ def connect_to_database(dset, row_factory=False):
         cur = con.cursor()
     except sqlite3.Error:
         return None, None
-    
+
     return con, cur
-            

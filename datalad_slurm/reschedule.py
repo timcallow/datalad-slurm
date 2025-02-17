@@ -311,7 +311,6 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
         yield get_status_dict("run", status="error", message=str(ce), exception=ce)
         return
 
-
     ds_repo = dset.repo
     # Drop any leading commits that don't have a run command. These would be
     # skipped anyways.
@@ -668,6 +667,7 @@ def new_or_modified(diff_results):
         ]:
             r.pop("status", None)
             yield r
+
 
 def check_job_pattern(text):
     pattern = r"Submitted batch job \d+: Pending"

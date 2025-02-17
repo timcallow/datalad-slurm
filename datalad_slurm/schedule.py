@@ -205,7 +205,10 @@ class Schedule(Interface):
             option can be given more than once. CMD]""",
         ),
         outputs=Parameter(
-            args=("-o", "--output",),
+            args=(
+                "-o",
+                "--output",
+            ),
             dest="outputs",
             metavar=("PATH"),
             action="append",
@@ -468,11 +471,9 @@ def run_command(
         for k, v in (
             ("inputs", inputs),
             ("extra_inputs", extra_inputs),
-            ("outputs", outputs)
+            ("outputs", outputs),
         )
     }
-
-
 
     rel_pwd = rerun_info.get("pwd") if rerun_info else None
     if rel_pwd and dataset:
@@ -494,9 +495,7 @@ def run_command(
             "schedule",
             ds=ds,
             status="impossible",
-            message=(
-                "At least one output must be specified for datalad schedule."
-            ),
+            message=("At least one output must be specified for datalad schedule."),
         )
         return
 
@@ -551,7 +550,9 @@ def run_command(
     # Check for output conflicts HERE
     # now check history of outputs in un-finished slurm commands
     if check_outputs:
-        output_conflict, status_ok = check_output_conflict(ds, expanded_specs["outputs"], locked_prefixes)
+        output_conflict, status_ok = check_output_conflict(
+            ds, expanded_specs["outputs"], locked_prefixes
+        )
         if not status_ok:
             yield get_status_dict(
                 "schedule",
@@ -568,7 +569,7 @@ def run_command(
                 message=(
                     "There are conflicting outputs with previously scheduled jobs. "
                     "Finish those jobs or adjust output for the current job first."
-                )
+                ),
             )
             return
 
@@ -686,8 +687,6 @@ def run_command(
         )
         return
 
-
-    
     # TODO what happens in case of inject??
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
@@ -727,8 +726,7 @@ def run_command(
     if rerun_info:
         slurm_id_old = rerun_info["slurm_job_id"]
         message += f"\n\nRe-submission of job {slurm_id_old}."
-        
-    
+
     msg = message if message else None
 
     msg_path = None
@@ -747,8 +745,10 @@ def run_command(
         status = "error"
     else:
         status = "ok"
-    
-    status_ok = add_to_database(ds, run_info, msg, expanded_specs["outputs"], locked_prefixes)
+
+    status_ok = add_to_database(
+        ds, run_info, msg, expanded_specs["outputs"], locked_prefixes
+    )
     if not status_ok:
         yield get_status_dict(
             "schedule",
@@ -756,7 +756,7 @@ def run_command(
             status="error",
             message=("Database connection cannot be established"),
         )
-        return                    
+        return
 
     run_result = get_status_dict(
         "run",
@@ -788,14 +788,15 @@ def run_command(
             run_result[f"expanded_{s}"] = globbed[s].expand_strict()
     yield run_result
 
+
 def check_output_conflict(dset, outputs, output_prefixes):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
-    
+
     Args:
         dset: Dataset object containing repository information
         outputs: List of strings representing output paths to check
-        
+
     Returns:
         list: List of slurm_job_ids that have conflicting outputs. Empty list if no conflicts
               or if database error occurs.
@@ -813,7 +814,7 @@ def check_output_conflict(dset, outputs, output_prefixes):
         has_match = bool(set(existing_prefixes) & set(outputs))
         if has_match:
             return True, True
-        
+
         # now check CURRENT PREFIXES and against PRIOR NAMES
         cur.execute("SELECT name FROM locked_names")
         existing_names = cur.fetchall()
@@ -830,28 +831,29 @@ def check_output_conflict(dset, outputs, output_prefixes):
         return False, True
     return False, True
 
+
 def get_sub_paths(paths):
     r"""
-    Extract sub-paths from directories. 
+    Extract sub-paths from directories.
 
     E.g. /a/b/c/d/ -> /a, /a/b, /a/b/c
     """
     # Set to store unique sub-paths
     all_sub_paths = set()
-    
+
     for path in paths:
         # Remove trailing slash if present
-        path = path.rstrip('/')
-        
+        path = path.rstrip("/")
+
         # Split the path into components
-        components = path.split('/')
-        
+        components = path.split("/")
+
         # Build sub-paths, excluding the full path
-        current_path = ''
+        current_path = ""
         for component in components[:-1]:  # Stop before the last component
             current_path += component + "/"
             all_sub_paths.add(current_path.rstrip("/"))
-    
+
     # Convert set to sorted list for consistent output
     return sorted(list(all_sub_paths))
 
@@ -888,10 +890,10 @@ def get_slurm_output_files(job_id):
     parsed_data = parse_slurm_output(result.stdout)
     if "ArrayJobId" in parsed_data:
         array_task_id = parsed_data["ArrayTaskId"]
-        slurm_job_ids = generate_array_job_names(str(job_id),str(array_task_id))
+        slurm_job_ids = generate_array_job_names(str(job_id), str(array_task_id))
     else:
         slurm_job_ids = [job_id]
-        
+
     slurm_out_paths = []
     for i, slurm_job_id in enumerate(slurm_job_ids):
         # Run scontrol command and get output
@@ -918,8 +920,8 @@ def get_slurm_output_files(job_id):
         cwd = Path.cwd()
         stdout_path = Path(stdout_path)
         stderr_path = Path(stderr_path)
-            
-        if i==0:
+
+        if i == 0:
             # Write parsed data to JSON file
             slurm_env_file = stdout_path.parent / f"slurm-job-{job_id}.env.json"
             with open(slurm_env_file, "w") as f:
@@ -932,9 +934,9 @@ def get_slurm_output_files(job_id):
             rel_stderr = os.path.relpath(stderr_path, cwd)
         except ValueError as e:
             raise ValueError(f"Cannot compute relative path: {e}")
-            
+
         slurm_out_paths.append(rel_stdout)
-        if rel_stdout!=rel_stderr:
+        if rel_stdout != rel_stderr:
             slurm_out_paths.append(rel_stderr)
 
     return slurm_out_paths, rel_slurmenv
@@ -956,50 +958,51 @@ def parse_slurm_output(output):
                     result[key] = value
     return result
 
+
 def generate_array_job_names(job_id, job_task_id):
     """
     Generate individual job names for a Slurm array job.
-    
+
     Args:
         job_id (str): The base Slurm job ID
         job_task_id (str): The array specification (e.g., "1-5", "1,3,5", "1-10:2")
-    
+
     Returns:
         list[str]: List of job names in the format "job_id_array_index"
-    
+
     Examples:
         >>> generate_array_job_names("12345", "1-3")
         ['12345_1', '12345_2', '12345_3']
-        
+
         >>> generate_array_job_names("12345", "1,3,5")
         ['12345_1', '12345_3', '12345_5']
-        
+
         >>> generate_array_job_names("12345", "1-5:2")
         ['12345_1', '12345_3', '12345_5']
     """
     job_names = []
-    
+
     # Remove any % limitations if present
-    if '%' in job_task_id:
-        job_task_id = job_task_id.split('%')[0]
-    
+    if "%" in job_task_id:
+        job_task_id = job_task_id.split("%")[0]
+
     # Split by comma to handle multiple ranges
-    ranges = job_task_id.split(',')
-    
+    ranges = job_task_id.split(",")
+
     for range_spec in ranges:
         # Handle individual numbers
-        if '-' not in range_spec:
+        if "-" not in range_spec:
             job_names.append(f"{job_id}_{range_spec}")
             continue
-            
+
         # Handle ranges with optional step
-        range_parts = range_spec.split(':')
-        start, end = map(int, range_parts[0].split('-'))
+        range_parts = range_spec.split(":")
+        start, end = map(int, range_parts[0].split("-"))
         step = int(range_parts[1]) if len(range_parts) > 1 else 1
-        
+
         for i in range(start, end + 1, step):
             job_names.append(f"{job_id}_{i}")
-    
+
     return job_names
 
 
@@ -1008,9 +1011,10 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     con, cur = connect_to_database(dset)
     if not cur or not con:
         return None
-    
+
     # create an empty table if it doesn't exist
-    cur.execute("""
+    cur.execute(
+        """
     CREATE TABLE IF NOT EXISTS open_jobs (
     slurm_job_id INTEGER,
     message TEXT,
@@ -1023,7 +1027,8 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     slurm_outputs TEXT CHECK (json_valid(slurm_outputs)),
     pwd TEXT
     )
-    """)
+    """
+    )
 
     # convert the inputs to json
     inputs_json = json.dumps(run_info["inputs"])
@@ -1041,7 +1046,8 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     chain_json = json.dumps(run_info["chain"])
 
     # add the most recent schedule command to the table
-    cur.execute("""
+    cur.execute(
+        """
     INSERT INTO open_jobs (slurm_job_id,
     message,
     chain,
@@ -1054,57 +1060,64 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     pwd)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
-    (run_info["slurm_job_id"],
-     message,
-     chain_json,
-     run_info["cmd"],
-     run_info["dsid"],
-     inputs_json,
-     extra_inputs_json,
-     outputs_json,
-     slurm_outputs_json,
-     run_info["pwd"]))
-    
+        (
+            run_info["slurm_job_id"],
+            message,
+            chain_json,
+            run_info["cmd"],
+            run_info["dsid"],
+            inputs_json,
+            extra_inputs_json,
+            outputs_json,
+            slurm_outputs_json,
+            run_info["pwd"],
+        ),
+    )
+
     # now create the tables with the locked_prefixes and locked_names
-    cur.execute("""
+    cur.execute(
+        """
     CREATE TABLE IF NOT EXISTS locked_prefixes (
     slurm_job_id INTEGER,
     prefix TEXT )
-    """)
+    """
+    )
 
-    cur.execute("""
+    cur.execute(
+        """
     CREATE TABLE IF NOT EXISTS locked_names (
     slurm_job_id INTEGER,
     name TEXT )
-    """)
+    """
+    )
 
     for output in outputs:
-        cur.execute("""
+        cur.execute(
+            """
         INSERT INTO locked_names (slurm_job_id,
         name)
         VALUES (?, ?)
         """,
-        (run_info["slurm_job_id"],
-         output.rstrip("/")))
+            (run_info["slurm_job_id"], output.rstrip("/")),
+        )
 
     if prefixes:
         for prefix in prefixes:
-            cur.execute("""
+            cur.execute(
+                """
             INSERT INTO locked_prefixes (slurm_job_id,
             prefix)
             VALUES (?, ?)
             """,
-            (run_info["slurm_job_id"],
-             prefix))
-    
+                (run_info["slurm_job_id"], prefix),
+            )
+
     # save and close
     con.commit()
     con.close()
 
     return True
 
+
 def _none_to_empty_list(value):
     return [] if value is None else value
-
-    
-    
