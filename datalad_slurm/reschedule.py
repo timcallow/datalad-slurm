@@ -180,7 +180,6 @@ class Reschedule(Interface):
         assume_ready=None,
         jobs=None,
     ):
-
         ds = require_dataset(
             dataset, check_installed=True, purpose="reschedule a command"
         )
@@ -234,6 +233,33 @@ class Reschedule(Interface):
 
 
 def _revrange_as_results(dset, revrange):
+    """
+    Generate results for a given revision range in a dataset.
+
+    Parameters
+    ----------
+    dset : Dataset
+        The dataset object containing the repository.
+    revrange : str
+        The revision range to process.
+
+    Yields
+    ------
+    dict
+        A dictionary containing the status and run information for each commit
+        in the revision range. The dictionary includes:
+        - 'status': The status of the operation, always 'ok'.
+        - 'ds': The dataset object.
+        - 'commit': The commit hash.
+        - 'parents': The parent commits of the commit.
+        - 'run_info': The run information if available.
+        - 'run_message': The run message if available.
+
+    Raises
+    ------
+    ValueError
+        If there is an error processing the commit message.
+    """
     ds_repo = dset.repo
     rev_lines = ds_repo.get_revisions(
         revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
@@ -270,12 +296,29 @@ def _revrange_as_results(dset, revrange):
 
 
 def _rerun_as_results(dset, revrange, since, message, rev_branch):
-    """Represent the rerun as result records.
-
-    In the standard case, the information in these results will be used to
-    actually re-execute the commands.
     """
+    Represent the rerun as result records.
 
+    Parameters
+    ----------
+    dset : Dataset
+        The dataset to operate on.
+    revrange : str
+        The range of revisions to consider for rerunning.
+    since : str
+        The starting point for the range of revisions.
+    message : str
+        The message to use for the rerun commits.
+    rev_branch : str
+        The branch to use for the rerun commits.
+
+    Yields
+    ------
+    dict
+        A dictionary representing the result of processing each commit in the
+        specified revision range. Each dictionary contains information about
+        the rerun action, status, and any relevant messages or exceptions.
+    """
     try:
         results = _revrange_as_results(dset, revrange)
     except ValueError as exc:
@@ -333,6 +376,32 @@ def _mark_nonrun_result(result, which):
 
 
 def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
+    """
+    Rerun a series of actions on a dataset.
+
+    Parameters
+    ----------
+    dset : Dataset
+        The dataset on which to rerun the actions.
+    results : list of dict
+        A list of result dictionaries, each representing an action to rerun.
+    assume_ready : bool, optional
+        If True, assume that the dataset is ready for rerun without additional checks.
+    explicit : bool, optional
+        If True, rerun actions explicitly specified in the results.
+    jobs : int, optional
+        The number of jobs to use for parallel processing.
+
+    Yields
+    ------
+    dict
+        Result dictionaries after rerunning the actions.
+
+    Notes
+    -----
+    This function handles various rerun actions such as 'checkout', 'merge', 'skip-or-pick', and 'run'.
+    It maintains a map from original commit hashes to new commit hashes created during the rerun process.
+    """
     ds_repo = dset.repo
     # Keep a map from an original hexsha to a new hexsha created by the rerun
     # (i.e. a reran, cherry-picked, or merged commit).
@@ -524,6 +593,23 @@ def _report(dset, results):
 
 
 def _get_script_handler(script, since, revision):
+    """
+    Generate a handler function to create a shell script for rerunning commands.
+
+    Parameters
+    ----------
+    script : str
+        The file path where the script will be written. If the value is "-", the script will be written to stdout.
+    since : str or None
+        The starting point for the `datalad rerun` command. If None, no `--since` option will be included.
+    revision : str
+        The revision or commit hash to be used in the `datalad rerun` command.
+
+    Returns
+    -------
+    fn : function
+        A function that takes a dataset and results, and writes a shell script based on the rerun commands.
+    """
     ofh = sys.stdout if script.strip() == "-" else open(script, "w")
 
     def fn(dset, results):
@@ -642,6 +728,7 @@ def new_or_modified(diff_results):
 
 
 def check_job_pattern(text):
+    r"""Check if the text contains a slurm job id and remove it."""
     pattern = r"Submitted batch job \d+: Pending"
     match = re.search(pattern, text)
 
