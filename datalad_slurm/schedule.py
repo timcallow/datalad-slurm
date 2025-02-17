@@ -658,8 +658,8 @@ def schedule_cmd(
         slurm_outputs, slurm_env_file = get_slurm_output_files(slurm_job_id)
         run_info["outputs"].extend(slurm_outputs)
         run_info["outputs"].append(slurm_env_file)
-        run_info["slurm_run_outputs"] = slurm_outputs
-        run_info["slurm_run_outputs"].append(slurm_env_file)
+        run_info["slurm_outputs"] = slurm_outputs
+        run_info["slurm_outputs"].append(slurm_env_file)
 
     # add the slurm job id to the run info
     run_info["slurm_job_id"] = slurm_job_id
@@ -989,7 +989,7 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     outputs_json = json.dumps(run_info["outputs"])
 
     # convert the slurm outputs to json
-    slurm_outputs_json = json.dumps(run_info["slurm_run_outputs"])
+    slurm_outputs_json = json.dumps(run_info["slurm_outputs"])
 
     # convert chain to json
     chain_json = json.dumps(run_info["chain"])
