@@ -242,7 +242,7 @@ class Schedule(Interface):
         dry_run=None,
         jobs=None,
     ):
-        for r in run_command(
+        for r in schedule_cmd(
             cmd,
             dataset=dataset,
             inputs=inputs,
@@ -353,7 +353,7 @@ def _execute_slurm_command(command, pwd):
     return cmd_exitcode or 0, exc, job_id
 
 
-def run_command(
+def schedule_cmd(
     cmd,
     dataset=None,
     inputs=None,

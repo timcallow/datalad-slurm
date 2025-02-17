@@ -45,7 +45,7 @@ from datalad.core.local.run import (
 )
 
 # from .schedule import _execute_slurm_command
-from .schedule import run_command
+from .schedule import schedule_cmd
 
 from .common import get_finish_info
 
@@ -462,7 +462,7 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
 
             message = res["rerun_message"] or res["run_message"]
             message = check_job_pattern(message)
-            for r in run_command(
+            for r in schedule_cmd(
                 run_info["cmd"],
                 dataset=dset,
                 inputs=run_info.get("inputs", []),
