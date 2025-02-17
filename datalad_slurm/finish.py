@@ -256,8 +256,10 @@ def finish_cmd(
         status_summary = ", ".join(
             f"{job_id}: {status}" for job_id, status in job_states.items()
         )
-        message = (f"Slurm job(s) for job {slurm_job_id} are not complete."
-                   f"Statuses: {status_summary}")
+        message = (
+            f"Slurm job(s) for job {slurm_job_id} are not complete."
+            f"Statuses: {status_summary}"
+        )
         if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
             yield get_status_dict("finish", status="error", message=message)
             return
@@ -311,7 +313,8 @@ def finish_cmd(
     record, record_path = _create_record(run_info, False, ds)
 
     msg = msg.format(
-        message_entry, '"{}"'.format(record) if record_path else record,
+        message_entry,
+        '"{}"'.format(record) if record_path else record,
     )
 
     # remove the job

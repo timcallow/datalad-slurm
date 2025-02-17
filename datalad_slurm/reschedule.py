@@ -280,7 +280,9 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
         results = _revrange_as_results(dset, revrange)
     except ValueError as exc:
         ce = CapturedException(exc)
-        yield get_status_dict("reschedule", status="error", message=str(ce), exception=ce)
+        yield get_status_dict(
+            "reschedule", status="error", message=str(ce), exception=ce
+        )
         return
 
     ds_repo = dset.repo
