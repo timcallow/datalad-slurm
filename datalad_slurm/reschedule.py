@@ -252,7 +252,7 @@ def _revrange_as_results(dset, revrange):
         - 'ds': The dataset object.
         - 'commit': The commit hash.
         - 'parents': The parent commits of the commit.
-        - 'run_info': The run information if available.
+        - 'slurm_run_info': The run information if available.
         - 'run_message': The run message if available.
 
     Raises
@@ -290,7 +290,7 @@ def _revrange_as_results(dset, revrange):
                     "merge" if len(parents) > 1 else "root",
                 )
                 continue
-            res["run_info"] = info
+            res["slurm_run_info"] = info
             res["run_message"] = msg
         yield dict(res, status="ok")
 
@@ -331,9 +331,9 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
     ds_repo = dset.repo
     # Drop any leading commits that don't have a run command. These would be
     # skipped anyways.
-    # TODO: change the "run_info" to something else e.g. "slurm_run_info"
+    # TODO: change the "slurm_run_info" to something else e.g. "slurm_slurm_run_info"
     # then there is less chance to be confused with a datalad run command
-    results = list(dropwhile(lambda r: "run_info" not in r, results))
+    results = list(dropwhile(lambda r: "slurm_run_info" not in r, results))
     if not results:
         yield get_status_dict(
             "reschedule",
@@ -350,8 +350,8 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
 
     for res in results:
         hexsha = res["commit"]
-        if "run_info" in res:
-            rerun_dsid = res["run_info"].get("dsid")
+        if "slurm_run_info" in res:
+            rerun_dsid = res["slurm_run_info"].get("dsid")
             if rerun_dsid is not None and rerun_dsid != dset.id:
                 skip_or_pick(hexsha, res, "was ran from a different dataset")
                 res["status"] = "impossible"
@@ -506,20 +506,20 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
                 _mark_nonrun_result(res, "pick")
                 yield res
         elif rerun_action == "run":
-            run_info = res["run_info"]
+            slurm_run_info = res["slurm_run_info"]
             # Keep a "rerun" trail.
-            if "chain" in run_info:
-                run_info["chain"].append(res_hexsha)
+            if "chain" in slurm_run_info:
+                slurm_run_info["chain"].append(res_hexsha)
             else:
-                run_info["chain"] = [res_hexsha]
+                slurm_run_info["chain"] = [res_hexsha]
 
             # now we have to find out what was modified during the last run,
             # and enable re-modification ideally, we would bring back the
             # entire state of the tree with #1424, but we limit ourself to file
             # addition/not-in-place-modification for now
             auto_outputs = (ap["path"] for ap in new_or_modified(res["diff"]))
-            outputs = run_info.get("outputs", [])
-            outputs_dir = op.join(dset.path, run_info["pwd"])
+            outputs = slurm_run_info.get("outputs", [])
+            outputs_dir = op.join(dset.path, slurm_run_info["pwd"])
             auto_outputs = [
                 p
                 for p in auto_outputs
@@ -528,23 +528,23 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
             ]
 
             # remove the slurm outputs from the previous run from the outputs
-            old_slurm_outputs = run_info.get("slurm_outputs", [])
+            old_slurm_outputs = slurm_run_info.get("slurm_outputs", [])
             outputs = [output for output in outputs if output not in old_slurm_outputs]
 
             message = res["rerun_message"] or res["run_message"]
             message = check_job_pattern(message)
             for r in schedule_cmd(
-                run_info["cmd"],
+                slurm_run_info["cmd"],
                 dataset=dset,
-                inputs=run_info.get("inputs", []),
-                extra_inputs=run_info.get("extra_inputs", []),
+                inputs=slurm_run_info.get("inputs", []),
+                extra_inputs=slurm_run_info.get("extra_inputs", []),
                 outputs=outputs,
                 assume_ready=assume_ready,
                 explicit=explicit,
                 rerun_outputs=auto_outputs,
                 message=message,
                 jobs=jobs,
-                rerun_info=run_info,
+                reslurm_run_info=slurm_run_info,
             ):
                 yield r
         new_head = ds_repo.get_hexsha()
@@ -582,7 +582,7 @@ def _get_rerun_log_msg(res):
 def _report(dset, results):
     ds_repo = dset.repo
     for res in results:
-        if "run_info" in res:
+        if "slurm_run_info" in res:
             if res["status"] != "impossible":
                 res["diff"] = list(res["diff"])
                 # Add extra information that is useful in the report but not
@@ -637,17 +637,17 @@ def _get_script_handler(script, since, revision):
                 yield res
                 return
 
-            if "run_info" not in res:
+            if "slurm_run_info" not in res:
                 continue
 
-            run_info = res["run_info"]
-            cmd = run_info["cmd"]
+            slurm_run_info = res["slurm_run_info"]
+            cmd = slurm_run_info["cmd"]
 
             expanded_cmd = format_command(
                 dset,
                 cmd,
                 **dict(
-                    run_info, dspath=dset.path, pwd=op.join(dset.path, run_info["pwd"])
+                    slurm_run_info, dspath=dset.path, pwd=op.join(dset.path, slurm_run_info["pwd"])
                 ),
             )
 

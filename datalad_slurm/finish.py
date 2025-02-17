@@ -262,9 +262,9 @@ def finish_cmd(
         return
 
     run_message = results["run_message"]
-    run_info = results["run_info"]
+    slurm_run_info = results["slurm_run_info"]
     # concatenate outputs from both submission and completion
-    outputs_to_save = ensure_list(outputs) + ensure_list(run_info["outputs"])
+    outputs_to_save = ensure_list(outputs) + ensure_list(slurm_run_info["outputs"])
 
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
@@ -272,7 +272,7 @@ def finish_cmd(
         yield get_status_dict("finish", status="error", message=err_msg)
         return
 
-    slurm_job_id = run_info["slurm_job_id"]
+    slurm_job_id = slurm_run_info["slurm_job_id"]
 
     # get a list of job ids and status (if we have an array job)
     job_states, job_status_group = get_job_status(slurm_job_id)
@@ -299,7 +299,7 @@ def finish_cmd(
                 return
             else:
                 # remove the job
-                remove_from_database(ds, run_info)
+                remove_from_database(ds, slurm_run_info)
                 message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
                 yield get_status_dict("finish", status="ok", message=message)
                 return
@@ -308,10 +308,10 @@ def finish_cmd(
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
 
     # update the run info with the new outputs
-    run_info["outputs"] = globbed_outputs
+    slurm_run_info["outputs"] = globbed_outputs
 
     # TODO: this is not saving model files (outputs from first job) for some reason
-    # rel_pwd = rerun_info.get('pwd') if rerun_info else None
+    # rel_pwd = reslurm_run_info.get('pwd') if reslurm_run_info else None
     rel_pwd = None  # TODO might be able to get this from rerun info
     if rel_pwd and dataset:
         # recording is relative to the dataset
@@ -340,7 +340,7 @@ def finish_cmd(
     # create the run record, either as a string, or written to a file
     # depending on the config/request
     # TODO sidecar param
-    record, record_path = _create_record(run_info, False, ds)
+    record, record_path = _create_record(slurm_run_info, False, ds)
 
     msg = msg.format(
         message_entry,
@@ -348,7 +348,7 @@ def finish_cmd(
     )
 
     # remove the job
-    remove_from_database(ds, run_info)
+    remove_from_database(ds, slurm_run_info)
 
     if do_save:
         with chpwd(pwd):
@@ -386,18 +386,18 @@ def extract_from_db(dset, slurm_job_id):
     column_names = [desc[0] for desc in cur.description]
 
     # extract as dictionary
-    run_info = dict(zip(column_names, record))
+    slurm_run_info = dict(zip(column_names, record))
 
     # convert json columns to list
     json_columns = ["chain", "inputs", "extra_inputs", "outputs", "slurm_outputs"]
 
     for column in json_columns:
-        run_info[column] = json.loads(run_info[column])
+        slurm_run_info[column] = json.loads(slurm_run_info[column])
 
-    message = run_info["message"]
-    del run_info["message"]
+    message = slurm_run_info["message"]
+    del slurm_run_info["message"]
 
-    res = {"run_message": message, "run_info": run_info}
+    res = {"run_message": message, "slurm_run_info": slurm_run_info}
 
     return dict(res, status="ok")
 
@@ -480,7 +480,7 @@ def get_job_status(job_id):
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
 
 
-def remove_from_database(dset, run_info):
+def remove_from_database(dset, slurm_run_info):
     """Remove a job from the database based on its slurm_job_id."""
     con, cur = connect_to_database(dset)
 
@@ -490,7 +490,7 @@ def remove_from_database(dset, run_info):
     DELETE FROM open_jobs
     WHERE slurm_job_id = ?
     """,
-        (run_info["slurm_job_id"],),
+        (slurm_run_info["slurm_job_id"],),
     )
 
     cur.execute(
@@ -498,7 +498,7 @@ def remove_from_database(dset, run_info):
     DELETE FROM locked_prefixes
     WHERE slurm_job_id = ?
     """,
-        (run_info["slurm_job_id"],),
+        (slurm_run_info["slurm_job_id"],),
     )
 
     cur.execute(
@@ -506,7 +506,7 @@ def remove_from_database(dset, run_info):
     DELETE FROM locked_names
     WHERE slurm_job_id = ?
     """,
-        (run_info["slurm_job_id"],),
+        (slurm_run_info["slurm_job_id"],),
     )
 
     con.commit()

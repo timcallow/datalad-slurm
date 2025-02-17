@@ -261,11 +261,11 @@ class Schedule(Interface):
     @staticmethod
     def custom_result_renderer(res, **kwargs):
         dry_run = kwargs.get("dry_run")
-        if dry_run and "dry_run_info" in res:
+        if dry_run and "dry_slurm_run_info" in res:
             if dry_run == "basic":
                 _display_basic(res)
             elif dry_run == "command":
-                ui.message(res["dry_run_info"]["cmd_expanded"])
+                ui.message(res["dry_slurm_run_info"]["cmd_expanded"])
             else:
                 raise ValueError(f"Unknown dry-run mode: {dry_run!r}")
         else:
@@ -368,7 +368,7 @@ def schedule_cmd(
     jobs=None,
     explicit=True,
     extra_info=None,
-    rerun_info=None,
+    reslurm_run_info=None,
     extra_inputs=None,
     rerun_outputs=None,
     inject=False,
@@ -392,7 +392,7 @@ def schedule_cmd(
         avoid collisions with future keys added by `run`, callers should try to
         use fairly specific key names and are encouraged to nest fields under a
         top-level "namespace" key (e.g., the project or extension name).
-    rerun_info : dict, optional
+    reslurm_run_info : dict, optional
         Record from a previous run. This is used internally by `rerun`.
     extra_inputs : list, optional
         Inputs to use in addition to those specified by `inputs`. Unlike
@@ -440,7 +440,7 @@ def schedule_cmd(
         )
     }
 
-    rel_pwd = rerun_info.get("pwd") if rerun_info else None
+    rel_pwd = reslurm_run_info.get("pwd") if reslurm_run_info else None
     if rel_pwd and dataset:
         # recording is relative to the dataset
         pwd = op.normpath(op.join(dataset.path, rel_pwd))
@@ -467,7 +467,7 @@ def schedule_cmd(
     specs["outputs"] = [output.rstrip("/") for output in specs["outputs"]]
 
     # skip for callers that already take care of this
-    if not (skip_dirtycheck or rerun_info or inject):
+    if not (skip_dirtycheck or reslurm_run_info or inject):
         # For explicit=True, we probably want to check whether any inputs have
         # modifications. However, we can't just do is_dirty(..., path=inputs)
         # because we need to consider subdatasets and untracked files.
@@ -611,11 +611,11 @@ def schedule_cmd(
     # - pwd if inside the dataset
     # - the command itself
     # - exit code of the command
-    run_info = {
+    slurm_run_info = {
         "cmd": cmd,
         # rerun does not handle any prop being None, hence all
         # the `or/else []`
-        "chain": rerun_info["chain"] if rerun_info else [],
+        "chain": reslurm_run_info["chain"] if reslurm_run_info else [],
     }
 
     # for all following we need to make sure that the raw
@@ -623,7 +623,7 @@ def schedule_cmd(
     # the run-record to enable "parametric" re-runs
     # ...except when expansion was requested
     for k, v in specs.items():
-        run_info[k] = (
+        slurm_run_info[k] = (
             globbed[k].paths
             if expand in ["both"] + (["outputs"] if k == "outputs" else ["inputs"])
             else (v if parametric_record else expanded_specs[k]) or []
@@ -631,11 +631,11 @@ def schedule_cmd(
 
     if rel_pwd is not None:
         # only when inside the dataset to not leak information
-        run_info["pwd"] = rel_pwd
+        slurm_run_info["pwd"] = rel_pwd
     if ds.id:
-        run_info["dsid"] = ds.id
+        slurm_run_info["dsid"] = ds.id
     if extra_info:
-        run_info.update(extra_info)
+        slurm_run_info.update(extra_info)
 
     if dry_run:
         yield get_status_dict(
@@ -643,8 +643,8 @@ def schedule_cmd(
             ds=ds,
             status="ok",
             message="Dry run",
-            run_info=run_info,
-            dry_run_info=dict(
+            slurm_run_info=slurm_run_info,
+            dry_slurm_run_info=dict(
                 cmd_expanded=cmd_expanded,
                 pwd_full=pwd,
                 **{k: globbed[k].expand() for k in ("inputs", "outputs")},
@@ -655,16 +655,16 @@ def schedule_cmd(
     # TODO what happens in case of inject??
     if not inject:
         cmd_exitcode, exc, slurm_job_id = _execute_slurm_command(cmd_expanded, pwd)
-        run_info["exit"] = cmd_exitcode
+        slurm_run_info["exit"] = cmd_exitcode
         # TODO: expand these paths
         slurm_outputs, slurm_env_file = get_slurm_output_files(slurm_job_id)
-        run_info["outputs"].extend(slurm_outputs)
-        run_info["outputs"].append(slurm_env_file)
-        run_info["slurm_outputs"] = slurm_outputs
-        run_info["slurm_outputs"].append(slurm_env_file)
+        slurm_run_info["outputs"].extend(slurm_outputs)
+        slurm_run_info["outputs"].append(slurm_env_file)
+        slurm_run_info["slurm_outputs"] = slurm_outputs
+        slurm_run_info["slurm_outputs"].append(slurm_env_file)
 
     # add the slurm job id to the run info
-    run_info["slurm_job_id"] = slurm_job_id
+    slurm_run_info["slurm_job_id"] = slurm_job_id
 
     # Re-glob to capture any new outputs.
     #
@@ -675,30 +675,30 @@ def schedule_cmd(
         # matching outputs
         globbed["outputs"].expand(refresh=True)
         if expand in ["outputs", "both"]:
-            run_info["outputs"] = globbed["outputs"].paths
+            slurm_run_info["outputs"] = globbed["outputs"].paths
             # add the slurm outputs and environment files
             # these are not captured in the initial globbing
-            run_info["outputs"].extend(slurm_outputs)
+            slurm_run_info["outputs"].extend(slurm_outputs)
 
     # abbreviate version of the command for illustrative purposes
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
 
     # add extra info for re-scheduled jobs
-    if rerun_info:
-        slurm_id_old = rerun_info["slurm_job_id"]
+    if reslurm_run_info:
+        slurm_id_old = reslurm_run_info["slurm_job_id"]
         message += f"\n\nRe-submission of job {slurm_id_old}."
 
     msg = message if message else None
     msg_path = None
 
-    expected_exit = rerun_info.get("exit", 0) if rerun_info else None
+    expected_exit = reslurm_run_info.get("exit", 0) if reslurm_run_info else None
     if cmd_exitcode and expected_exit != cmd_exitcode:
         status = "error"
     else:
         status = "ok"
 
     status_ok = add_to_database(
-        ds, run_info, msg, expanded_specs["outputs"], locked_prefixes
+        ds, slurm_run_info, msg, expanded_specs["outputs"], locked_prefixes
     )
     if not status_ok:
         yield get_status_dict(
@@ -716,7 +716,7 @@ def schedule_cmd(
         # use the abbrev. command as the message to give immediate clarity what
         # completed/errors in the generic result rendering
         message=cmd_shorty,
-        run_info=run_info,
+        slurm_run_info=slurm_run_info,
         # use the same key that `get_status_dict()` would/will use
         # to record the exit code in case of an exception
         exit_code=cmd_exitcode,
@@ -995,7 +995,7 @@ def generate_array_job_names(job_id, job_task_id):
     return job_names
 
 
-def add_to_database(dset, run_info, message, outputs, prefixes):
+def add_to_database(dset, slurm_run_info, message, outputs, prefixes):
     """
     Add a `datalad schedule` command to an sqlite database.
 
@@ -1003,7 +1003,7 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     ----------
     dset : object
         The dataset object.
-    run_info : dict
+    slurm_run_info : dict
         A dictionary containing information about the run. Expected keys are:
         - 'slurm_job_id': int
         - 'inputs': list
@@ -1050,19 +1050,19 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     )
 
     # convert the inputs to json
-    inputs_json = json.dumps(run_info["inputs"])
+    inputs_json = json.dumps(slurm_run_info["inputs"])
 
     # convert the extra inputs to json
-    extra_inputs_json = json.dumps(run_info["extra_inputs"])
+    extra_inputs_json = json.dumps(slurm_run_info["extra_inputs"])
 
     # convert the outputs to json
-    outputs_json = json.dumps(run_info["outputs"])
+    outputs_json = json.dumps(slurm_run_info["outputs"])
 
     # convert the slurm outputs to json
-    slurm_outputs_json = json.dumps(run_info["slurm_outputs"])
+    slurm_outputs_json = json.dumps(slurm_run_info["slurm_outputs"])
 
     # convert chain to json
-    chain_json = json.dumps(run_info["chain"])
+    chain_json = json.dumps(slurm_run_info["chain"])
 
     # add the most recent schedule command to the table
     cur.execute(
@@ -1080,16 +1080,16 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """,
         (
-            run_info["slurm_job_id"],
+            slurm_run_info["slurm_job_id"],
             message,
             chain_json,
-            run_info["cmd"],
-            run_info["dsid"],
+            slurm_run_info["cmd"],
+            slurm_run_info["dsid"],
             inputs_json,
             extra_inputs_json,
             outputs_json,
             slurm_outputs_json,
-            run_info["pwd"],
+            slurm_run_info["pwd"],
         ),
     )
 
@@ -1117,7 +1117,7 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
         name)
         VALUES (?, ?)
         """,
-            (run_info["slurm_job_id"], output.rstrip("/")),
+            (slurm_run_info["slurm_job_id"], output.rstrip("/")),
         )
 
     if prefixes:
@@ -1128,7 +1128,7 @@ def add_to_database(dset, run_info, message, outputs, prefixes):
             prefix)
             VALUES (?, ?)
             """,
-                (run_info["slurm_job_id"], prefix),
+                (slurm_run_info["slurm_job_id"], prefix),
             )
 
     # save and close
