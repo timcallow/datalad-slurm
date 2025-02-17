@@ -1,66 +1,11 @@
 __docformat__ = "restructuredtext"
 
 import json
-import logging
 import os.path as op
 import re
-import sys
-from copy import copy
-from functools import partial
-from itertools import dropwhile
 import sqlite3
 
-from datalad.consts import PRE_INIT_COMMIT_SHA
-from datalad.core.local.run import (
-    _format_cmd_shorty,
-    assume_ready_opt,
-    format_command,
-)
-from datalad.distribution.dataset import (
-    EnsureDataset,
-    datasetmethod,
-    require_dataset,
-)
-from datalad.interface.base import (
-    Interface,
-    build_doc,
-    eval_results,
-)
-from datalad.interface.common_opts import jobs_opt
-from datalad.interface.results import get_status_dict
-from datalad.support.constraints import (
-    EnsureNone,
-    EnsureStr,
-)
-from datalad.support.exceptions import CapturedException
 from datalad.support.json_py import load_stream
-from datalad.support.param import Parameter
-
-from datalad.utils import (
-    SequenceFormatter,
-    chpwd,
-    ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
-)
-
-from datalad.core.local.run import (
-    _format_cmd_shorty,
-    get_command_pwds,
-    _display_basic,
-    prepare_inputs,
-    _prep_worktree,
-    format_command,
-    normalize_command,
-    _create_record,
-    _format_iospecs,
-    _get_substitutions,
-)
-
-from datalad.support.globbedpaths import GlobbedPaths
 
 
 def get_finish_info(dset, message):

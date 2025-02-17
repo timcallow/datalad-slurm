@@ -4,65 +4,32 @@ __docformat__ = "restructuredtext"
 
 import json
 import logging
-import os
 import subprocess
-import re
 import os.path as op
-import warnings
-from argparse import REMAINDER
-from pathlib import Path
-from tempfile import mkdtemp
-import glob
-import sqlite3
 
-import datalad
-import datalad.support.ansi_colors as ac
-from datalad.config import anything2bool
 from datalad.core.local.save import Save
-from datalad.core.local.status import Status
 from datalad.distribution.dataset import (
-    Dataset,
     EnsureDataset,
     datasetmethod,
     require_dataset,
 )
-from datalad.distribution.get import Get
-from datalad.distribution.install import Install
 from datalad.interface.base import (
     Interface,
-    build_doc,
     eval_results,
 )
 from datalad.interface.common_opts import (
     jobs_opt,
-    save_message_opt,
 )
 from datalad.interface.results import get_status_dict
-from datalad.interface.utils import generic_result_renderer
-from datalad.local.unlock import Unlock
 from datalad.support.constraints import (
-    EnsureBool,
-    EnsureChoice,
     EnsureNone,
     EnsureStr,
 )
-from datalad.support.exceptions import (
-    CapturedException,
-    CommandError,
-)
 from datalad.support.globbedpaths import GlobbedPaths
-from datalad.support.json_py import dump2stream
 from datalad.support.param import Parameter
-from datalad.ui import ui
 from datalad.utils import (
-    SequenceFormatter,
     chpwd,
     ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
 )
 
 from .common import connect_to_database
@@ -154,7 +121,6 @@ class Finish(Interface):
         ds = require_dataset(
             dataset, check_installed=True, purpose="finish a SLURM job"
         )
-        ds_repo = ds.repo
 
         if outputs and not slurm_job_id:
             yield get_status_dict(
@@ -183,7 +149,7 @@ class Finish(Interface):
 
         # list the open jobs if requested
         # if a single commit was specified, nothing happens
-        # TODO: code with triple list and multiple prints is a bit ugly, consider refactor
+        # TODO: triple list and multiple prints is a bit ugly, consider refactor
         if list_open_jobs:
             if slurm_job_id_list:
                 print("The following jobs are open: \n")
@@ -261,7 +227,7 @@ def finish_cmd(
         yield get_status_dict(
             "finish",
             status="error",
-            message="Error accessing slurm job {} in database".format(commit[:7]),
+            message="Error accessing slurm job {} in database".format(slurm_job_id),
         )
         return
 
@@ -290,7 +256,8 @@ def finish_cmd(
         status_summary = ", ".join(
             f"{job_id}: {status}" for job_id, status in job_states.items()
         )
-        message = f"Slurm job(s) for job {slurm_job_id} are not complete. Statuses: {status_summary}"
+        message = (f"Slurm job(s) for job {slurm_job_id} are not complete."
+                   "Statuses: {status_summary}")
         if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
             yield get_status_dict("finish", status="error", message=message)
             return
@@ -300,7 +267,7 @@ def finish_cmd(
                 return
             else:
                 # remove the job
-                status = remove_from_database(ds, run_info)
+                remove_from_database(ds, run_info)
                 message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
                 yield get_status_dict("finish", status="ok", message=message)
                 return
@@ -344,12 +311,11 @@ def finish_cmd(
     record, record_path = _create_record(run_info, False, ds)
 
     msg = msg.format(
-        message_entry if message_entry is not None else cmd_shorty,
-        '"{}"'.format(record) if record_path else record,
+        message_entry, '"{}"'.format(record) if record_path else record,
     )
 
     # remove the job
-    status = remove_from_database(ds, run_info)
+    remove_from_database(ds, run_info)
 
     if do_save:
         with chpwd(pwd):
@@ -412,7 +378,7 @@ def get_job_status(job_id):
 
     Returns:
         str: "COMPLETED" if the job completed successfully,
-             otherwise returns the actual job state (e.g., "RUNNING", "FAILED", "PENDING")
+             otherwise returns the actual job state (e.g., "RUNNING", "FAILED")
 
     Raises:
         subprocess.CalledProcessError: If the sacct command fails
@@ -476,7 +442,7 @@ def remove_from_database(dset, run_info):
     # Remove the rows matching the slurm_job_id from all the tables
     cur.execute(
         """
-    DELETE FROM open_jobs 
+    DELETE FROM open_jobs
     WHERE slurm_job_id = ?
     """,
         (run_info["slurm_job_id"],),
@@ -500,4 +466,4 @@ def remove_from_database(dset, run_info):
 
     con.commit()
     con.close()
-    return "ok"
+    return

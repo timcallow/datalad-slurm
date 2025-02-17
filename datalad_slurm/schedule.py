@@ -1,5 +1,3 @@
-# emacs: -*- mode: python; py-indent-offset: 4; tab-width: 4; indent-tabs-mode: nil -*-
-# ex: set sts=4 ts=4 sw=4 et:
 # ## ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 #
 #   See COPYING file distributed along with the datalad package for the
@@ -17,26 +15,17 @@ import os
 import subprocess
 import re
 import os.path as op
-import warnings
 from argparse import REMAINDER
 from pathlib import Path
 from tempfile import mkdtemp
-import glob
 import sqlite3
 
 import datalad
-import datalad.support.ansi_colors as ac
-from datalad.config import anything2bool
-from datalad.core.local.save import Save
-from datalad.core.local.status import Status
 from datalad.distribution.dataset import (
-    Dataset,
     EnsureDataset,
     datasetmethod,
     require_dataset,
 )
-from datalad.distribution.get import Get
-from datalad.distribution.install import Install
 from datalad.interface.base import (
     Interface,
     build_doc,
@@ -48,36 +37,20 @@ from datalad.interface.common_opts import (
 )
 from datalad.interface.results import get_status_dict
 from datalad.interface.utils import generic_result_renderer
-from datalad.local.unlock import Unlock
 from datalad.support.constraints import (
     EnsureBool,
     EnsureChoice,
     EnsureNone,
 )
-from datalad.support.exceptions import (
-    CapturedException,
-    CommandError,
-)
 from datalad.support.globbedpaths import GlobbedPaths
-from datalad.support.json_py import dump2stream
 from datalad.support.param import Parameter
 from datalad.ui import ui
-from datalad.utils import (
-    SequenceFormatter,
-    chpwd,
-    ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
-)
+from datalad.utils import ensure_list
 
 from datalad.core.local.run import (
     _format_cmd_shorty,
     get_command_pwds,
     _display_basic,
-    prepare_inputs,
     _prep_worktree,
     format_command,
     normalize_command,
@@ -85,7 +58,7 @@ from datalad.core.local.run import (
     _get_substitutions,
 )
 
-from .common import check_finish_exists, connect_to_database
+from .common import connect_to_database
 
 lgr = logging.getLogger("datalad.slurm.schedule")
 
@@ -228,7 +201,7 @@ class Schedule(Interface):
         message=save_message_opt,
         check_outputs=Parameter(
             args=("--check-outputs",),
-            doc="""Check previous scheduled commits to see if there is any overlap in the outputs.""",
+            doc="""Check previous scheduled commits for output conflicts.""",
             constraints=EnsureNone() | EnsureBool(),
         ),
         dry_run=Parameter(
@@ -336,8 +309,6 @@ def _execute_slurm_command(command, pwd):
         (exit_code, exception)
         exit_code is 0 on success, exception is None on success
     """
-    from datalad.cmd import WitlessRunner
-
     exc = None
     cmd_exitcode = None
 
@@ -380,14 +351,6 @@ def _execute_slurm_command(command, pwd):
 
     lgr.info("== Slurm submission complete =====")
     return cmd_exitcode or 0, exc, job_id
-
-
-def _create_record(run_info):
-    """
-    Create a json record of the schedule command.
-    """
-    record = json.dumps(run_info, indent=1, sort_keys=True, ensure_ascii=False)
-    return record
 
 
 def run_command(
@@ -715,10 +678,6 @@ def run_command(
             # these are not captured in the initial globbing
             run_info["outputs"].extend(slurm_outputs)
 
-    # create the run record, either as a string, or written to a file
-    # depending on the config/request
-    record = _create_record(run_info)
-
     # abbreviate version of the command for illustrative purposes
     cmd_shorty = _format_cmd_shorty(cmd_expanded)
 
@@ -728,17 +687,7 @@ def run_command(
         message += f"\n\nRe-submission of job {slurm_id_old}."
 
     msg = message if message else None
-
     msg_path = None
-    if not rerun_info and cmd_exitcode:
-        if do_save:
-            repo = ds.repo
-            # must record path to be relative to ds.path to meet
-            # result record semantics (think symlink resolution, etc)
-            msg_path = (
-                ds.pathobj / repo.dot_git.relative_to(repo.pathobj) / "COMMIT_EDITMSG"
-            )
-            msg_path.write_text(msg)
 
     expected_exit = rerun_info.get("exit", 0) if rerun_info else None
     if cmd_exitcode and expected_exit != cmd_exitcode:
@@ -798,8 +747,8 @@ def check_output_conflict(dset, outputs, output_prefixes):
         outputs: List of strings representing output paths to check
 
     Returns:
-        list: List of slurm_job_ids that have conflicting outputs. Empty list if no conflicts
-              or if database error occurs.
+        list: List of slurm_job_ids that have conflicting outputs.
+              Empty list if no conflicts or if database error occurs.
     """
     # Connect to database
     con, cur = connect_to_database(dset, row_factory=True)

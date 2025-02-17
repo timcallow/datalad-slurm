@@ -1,5 +1,3 @@
-# emacs: -*- mode: python; py-indent-offset: 4; tab-width: 4; indent-tabs-mode: nil -*-
-# ex: set sts=4 ts=4 sw=4 et:
 # ## ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 #
 #   See COPYING file distributed along with the datalad package for the
@@ -11,7 +9,6 @@
 __docformat__ = "restructuredtext"
 
 
-import json
 import logging
 import os.path as op
 import re
@@ -21,11 +18,7 @@ from functools import partial
 from itertools import dropwhile
 
 from datalad.consts import PRE_INIT_COMMIT_SHA
-from datalad.core.local.run import (
-    _format_cmd_shorty,
-    assume_ready_opt,
-    format_command,
-)
+
 from datalad.distribution.dataset import (
     EnsureDataset,
     datasetmethod,
@@ -43,39 +36,18 @@ from datalad.support.constraints import (
     EnsureStr,
 )
 from datalad.support.exceptions import CapturedException
-from datalad.support.json_py import load_stream
 from datalad.support.param import Parameter
-
-from datalad.utils import (
-    SequenceFormatter,
-    chpwd,
-    ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
-)
 
 from datalad.core.local.run import (
     _format_cmd_shorty,
-    get_command_pwds,
-    _display_basic,
-    prepare_inputs,
-    _prep_worktree,
     format_command,
-    normalize_command,
-    _create_record,
-    _format_iospecs,
-    _get_substitutions,
+    assume_ready_opt,
 )
-
-from datalad.support.globbedpaths import GlobbedPaths
 
 # from .schedule import _execute_slurm_command
 from .schedule import run_command
 
-from .common import get_finish_info, check_finish_exists
+from .common import get_finish_info
 
 lgr = logging.getLogger("datalad.local.reschedule")
 
@@ -325,8 +297,6 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
             message=("No schedule commits found in range %s", revrange),
         )
         return
-
-    start_point = "HEAD"
 
     def skip_or_pick(hexsha, result, msg):
         result["rerun_action"] = "skip-or-pick"
