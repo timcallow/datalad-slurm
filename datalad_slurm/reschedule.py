@@ -488,7 +488,7 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
             ]
 
             # remove the slurm outputs from the previous run from the outputs
-            old_slurm_outputs = run_info.get("slurm_run_outputs", [])
+            old_slurm_outputs = run_info.get("slurm_outputs", [])
             outputs = [output for output in outputs if output not in old_slurm_outputs]
 
             message = res["rerun_message"] or res["run_message"]
