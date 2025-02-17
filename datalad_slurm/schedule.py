@@ -74,7 +74,9 @@ assume_ready_opt = Parameter(
 
 @build_doc
 class Schedule(Interface):
-    """Schedule a slurm script to be run and record it in the git history.
+    """
+    Summary:
+    This class schedules a Slurm script to be run and records it in the git history.
 
     It is recommended to craft the command such that it can run in the root
     directory of the dataset that the command will be recorded in. However,
@@ -208,7 +210,7 @@ class Schedule(Interface):
             # Leave out common -n short flag to avoid confusion with
             # `containers-run [-n|--container-name]`.
             args=("--dry-run",),
-            doc="""Do not run the command; just display details about the
+            doc="""Do not schedule the slurm job; just display details about the
             command execution. A value of "basic" reports a few important
             details about the execution, including the expanded command and
             expanded inputs and outputs. "command" displays the expanded
@@ -227,7 +229,7 @@ class Schedule(Interface):
     """
 
     @staticmethod
-    @datasetmethod(name="run")
+    @datasetmethod(name="schedule")
     @eval_results
     def __call__(
         cmd=None,
@@ -742,13 +744,18 @@ def check_output_conflict(dset, outputs, output_prefixes):
     """
     Check for conflicts between provided outputs and existing outputs in the database.
 
-    Args:
-        dset: Dataset object containing repository information
-        outputs: List of strings representing output paths to check
+    Parameters
+    ----------
+    dset : object
+        Dataset object containing repository information.
+    outputs : list of str
+        List of strings representing output paths to check.
 
-    Returns:
-        list: List of slurm_job_ids that have conflicting outputs.
-              Empty list if no conflicts or if database error occurs.
+    Returns
+    -------
+    list
+        List of slurm_job_ids that have conflicting outputs.
+        Empty list if no conflicts or if database error occurs.
     """
     # Connect to database
     con, cur = connect_to_database(dset, row_factory=True)
@@ -782,10 +789,23 @@ def check_output_conflict(dset, outputs, output_prefixes):
 
 
 def get_sub_paths(paths):
-    r"""
+    """
     Extract sub-paths from directories.
 
-    E.g. /a/b/c/d/ -> /a, /a/b, /a/b/c
+    Parameters
+    ----------
+    paths : list of str
+        List of directory paths.
+
+    Returns
+    -------
+    list of str
+        List of sub-paths extracted from the input paths.
+
+    Examples
+    --------
+    >>> get_sub_paths(['/a/b/c/d/'])
+    ['/a', '/a/b', '/a/b/c']
     """
     # Set to store unique sub-paths
     all_sub_paths = set()
@@ -809,18 +829,25 @@ def get_sub_paths(paths):
 
 def get_slurm_output_files(job_id):
     """
-    Gets the relative paths to StdOut and StdErr files for a Slurm job.
+    Get the relative paths to StdOut and StdErr files for a Slurm job.
 
-    Args:
-        job_id (str): The Slurm job ID
+    Parameters
+    ----------
+    job_id : str
+        The Slurm job ID.
 
-    Returns:
-        list: List containing relative path(s) to output files. If StdOut and StdErr
-              are the same file, returns a single path.
+    Returns
+    -------
+    list
+        List containing relative path(s) to output files. If StdOut and StdErr
+        are the same file, returns a single path.
 
-    Raises:
-        subprocess.CalledProcessError: If scontrol command fails
-        ValueError: If required file paths cannot be found in scontrol output
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If scontrol command fails.
+    ValueError
+        If required file paths cannot be found in scontrol output.
     """
     # Run scontrol command and get output
     try:
@@ -892,7 +919,20 @@ def get_slurm_output_files(job_id):
 
 
 def parse_slurm_output(output):
-    """Parse SLURM output into a dictionary, handling space-separated assignments"""
+    """
+    Parse SLURM output into a dictionary, handling space-separated assignments.
+
+    Parameters
+    ----------
+    output : str
+        The SLURM output as a string.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the parsed key-value pairs from the SLURM output,
+        excluding keys such as 'UserId' and 'JobId' for privacy purposes.
+    """
     result = {}
     # TODO Is this necessary for privacy purposes?
     # What is useful to oneself vs for the community when pushing to git
@@ -912,22 +952,22 @@ def generate_array_job_names(job_id, job_task_id):
     """
     Generate individual job names for a Slurm array job.
 
-    Args:
-        job_id (str): The base Slurm job ID
-        job_task_id (str): The array specification (e.g., "1-5", "1,3,5", "1-10:2")
+    Parameters
+    ----------
+    job_id : str
+        The base Slurm job ID.
+    job_task_id : str
+        The array specification (e.g., "1-5", "1,3,5", "1-10:2").
 
-    Returns:
-        list[str]: List of job names in the format "job_id_array_index"
+    Returns
+    -------
+    list of str
+        List of job names in the format "job_id_array_index".
 
-    Examples:
-        >>> generate_array_job_names("12345", "1-3")
-        ['12345_1', '12345_2', '12345_3']
-
-        >>> generate_array_job_names("12345", "1,3,5")
-        ['12345_1', '12345_3', '12345_5']
-
-        >>> generate_array_job_names("12345", "1-5:2")
-        ['12345_1', '12345_3', '12345_5']
+    Examples
+    --------
+    >>> generate_array_job_names("12345", "1-3")
+    ['12345_1', '12345_2', '12345_3']
     """
     job_names = []
 
@@ -956,7 +996,37 @@ def generate_array_job_names(job_id, job_task_id):
 
 
 def add_to_database(dset, run_info, message, outputs, prefixes):
-    """Add a `datalad schedule` command to an sqlite database."""
+    """
+    Add a `datalad schedule` command to an sqlite database.
+
+    Parameters
+    ----------
+    dset : object
+        The dataset object.
+    run_info : dict
+        A dictionary containing information about the run. Expected keys are:
+        - 'slurm_job_id': int
+        - 'inputs': list
+        - 'extra_inputs': list
+        - 'outputs': list
+        - 'slurm_outputs': list
+        - 'chain': list
+        - 'cmd': str
+        - 'dsid': str
+        - 'pwd': str
+    message : str
+        The message to be stored in the database.
+    outputs : list
+        A list of output names to be stored in the database.
+    prefixes : list
+        A list of prefix names to be stored in the database.
+
+    Returns
+    -------
+    bool or None
+        Returns True if the command was successfully added to the database,
+        None if the connection to the database could not be established.
+    """
     con, cur = connect_to_database(dset)
     if not cur or not con:
         return None
