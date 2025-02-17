@@ -25,8 +25,6 @@ def get_finish_info(dset, message):
     ------
     A ValueError if the information in `message` is invalid.
     """
-    # TODO fix the cmd_regex
-
     cmdrun_regex = (
         r"\[DATALAD SLURM RUN\] (.*)=== Do not change lines below "
         r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
@@ -60,21 +58,6 @@ def get_finish_info(dset, message):
     if "cmd" not in runinfo:
         raise ValueError("Looks like a finish commit but does not have a command")
     return rec_msg.rstrip(), runinfo
-
-
-def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
-    """Check if a job is open or already finished."""
-    # connect to the database
-    con, cur = connect_to_database(dset)
-    if con is None or cur is None:
-        return None, None
-
-    # check the open jobs for the commit
-    cur.execute("SELECT 1 FROM open_jobs WHERE commit_id LIKE ?", (revision + "%",))
-    finish_exists = cur.fetchone() is None
-    con.close()
-
-    return finish_exists, True
 
 
 def connect_to_database(dset, row_factory=False):
