@@ -257,7 +257,7 @@ def finish_cmd(
             f"{job_id}: {status}" for job_id, status in job_states.items()
         )
         message = (f"Slurm job(s) for job {slurm_job_id} are not complete."
-                   "Statuses: {status_summary}")
+                   f"Statuses: {status_summary}")
         if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
             yield get_status_dict("finish", status="error", message=message)
             return
