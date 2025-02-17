@@ -9,28 +9,28 @@ from datalad.support.json_py import load_stream
 
 
 def get_finish_info(dset, message):
-   """
-   Extract information about a finished slurm job from its commit message.
+    """
+    Extract information about a finished slurm job from its commit message.
 
-   Parameters
-   ----------
-   dset : Dataset
-       Dataset object containing the run record
-   message : str
-       A commit message
+    Parameters
+    ----------
+     dset : Dataset
+         Dataset object containing the run record
+     message : str
+         A commit message
 
-   Returns
-   -------
-   tuple
-       (str or None, dict or None)
-       - str: Command message if found, None otherwise
-       - dict: Finish information if found, None otherwise
+    Returns
+    -------
+    tuple
+           (str or None, dict or None)
+        - str: Command message if found, None otherwise
+        - dict: Finish information if found, None otherwise
 
-   Raises
-   ------
-   ValueError
-       If message contains invalid JSON or missing command information
-   """
+    Raises
+    ------
+    ValueError
+           If message contains invalid JSON or missing command information
+    """
     cmdrun_regex = (
         r"\[DATALAD SLURM RUN\] (.*)=== Do not change lines below "
         r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
@@ -67,26 +67,26 @@ def get_finish_info(dset, message):
 
 
 def connect_to_database(dset, row_factory=False):
-   """
-   Connect to sqlite3 database and return the connection and cursor.
+    """
+    Connect to sqlite3 database and return the connection and cursor.
 
-   Parameters
-   ----------
-   dset : Dataset
-       Dataset object with repo and path information
-   row_factory : bool, optional
-       If True, return single-column results as scalars instead of tuples, default False
+    Parameters
+    ----------
+    dset : Dataset
+           Dataset object with repo and path information
+    row_factory : bool, optional
+           If True, return single-column results as scalars instead of tuples, default False
 
-   Returns
-   -------
-   tuple
-       (sqlite3.Connection or None, sqlite3.Cursor or None)
-       Connection and cursor objects if successful, (None, None) if connection fails
+    Returns
+    -------
+    tuple
+        (sqlite3.Connection or None, sqlite3.Cursor or None)
+        Connection and cursor objects if successful, (None, None) if connection fails
 
-   Notes
-   -----
-   Database path is constructed from dataset ID and branch in .git directory
-   """
+    Notes
+    -----
+    Database path is constructed from dataset ID and branch in .git directory
+    """
     # define the database path from the dataset and branch
     ds_repo = dset.repo
     branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
