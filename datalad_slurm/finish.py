@@ -194,7 +194,37 @@ def finish_cmd(
     close_failed_jobs=False,
     jobs=None,
 ):
+    """
+    Finalize a SLURM job by saving its outputs to a dataset and making an entry in the git log.
 
+    Parameters
+    ----------
+    slurm_job_id : str
+        The SLURM job ID to finish.
+    dataset : str or Dataset, optional
+        The dataset to save the outputs to. If not provided, the current dataset is used.
+    message : str, optional
+        An optional message to include in the save commit.
+    outputs : list or str, optional
+        The outputs to save from the SLURM job. If not provided, outputs from the job info are used.
+    explicit : bool, optional
+        If True, requires a clean dataset to detect changes. Default is True.
+    close_failed_jobs : bool, optional
+        If True, closes failed or cancelled jobs. Default is False.
+    jobs : int, optional
+        Number of parallel jobs to use for saving. Default is None.
+
+    Yields
+    ------
+    dict
+        Status dictionaries indicating the result of the finish operation.
+
+    Notes
+    -----
+    This function finalizes a SLURM job by saving its outputs to a dataset. It checks the job status,
+    processes the outputs, and records the run information. If the job is not complete, it can optionally
+    close failed or cancelled jobs.
+    """
     ds = require_dataset(dataset, check_installed=True, purpose="finish a SLURM job")
     ds_repo = ds.repo
 
@@ -374,18 +404,30 @@ def extract_from_db(dset, slurm_job_id):
 
 def get_job_status(job_id):
     """
-    Check the status of a Slurm job using sacct command.
+    Check the status of a Slurm job using the sacct command.
 
-    Args:
-        job_id (Union[str, int]): The Slurm job ID to check
+    Parameters
+    ----------
+    job_id : Union[str, int]
+        The Slurm job ID to check.
 
-    Returns:
-        str: "COMPLETED" if the job completed successfully,
-             otherwise returns the actual job state (e.g., "RUNNING", "FAILED")
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - dict: A dictionary with job IDs as keys and their states as values.
+        - str: A summary status of the job group. "COMPLETED" if all jobs completed successfully,
+               "ARRAY FAILED (SOME COMPLETE)" if some jobs completed and some failed,
+               or "ARRAY FAILED (MULTIPLE CAUSES)" if there are multiple failure causes.
 
-    Raises:
-        subprocess.CalledProcessError: If the sacct command fails
-        ValueError: If the job_id is invalid or job not found
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If the sacct command fails.
+    ValueError
+        If the job_id is invalid or the job is not found.
+    RuntimeError
+        If there is an error running the sacct command.
     """
     # Convert job_id to string if it's an integer
     job_id = str(job_id)
