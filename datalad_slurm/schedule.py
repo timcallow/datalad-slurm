@@ -472,7 +472,7 @@ def schedule_cmd(
         # MIH: is_dirty() is gone, but status() can do all of the above!
         if not explicit and ds.repo.dirty:
             yield get_status_dict(
-                "run",
+                "schedule",
                 ds=ds,
                 status="impossible",
                 message=(
@@ -485,7 +485,7 @@ def schedule_cmd(
     wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
     if any(char in output for char in wildcard_list for output in outputs):
         yield get_status_dict(
-            "run",
+            "schedule",
             ds=ds,
             status="impossible",
             message=(
@@ -555,7 +555,7 @@ def schedule_cmd(
         }
     except KeyError as exc:
         yield get_status_dict(
-            "run",
+            "schedule",
             ds=ds,
             status="impossible",
             message=(
@@ -598,7 +598,7 @@ def schedule_cmd(
         cmd_expanded = format_command(ds, cmd, **cmd_fmt_kwargs)
     except KeyError as exc:
         yield get_status_dict(
-            "run",
+            "schedule",
             ds=ds,
             status="impossible",
             message=("command has an unrecognized placeholder: %s", exc),
@@ -637,7 +637,7 @@ def schedule_cmd(
 
     if dry_run:
         yield get_status_dict(
-            "run [dry-run]",
+            "schedule [dry-run]",
             ds=ds,
             status="ok",
             message="Dry run",
@@ -708,7 +708,7 @@ def schedule_cmd(
         return
 
     run_result = get_status_dict(
-        "run",
+        "schedule",
         ds=ds,
         status=status,
         # use the abbrev. command as the message to give immediate clarity what

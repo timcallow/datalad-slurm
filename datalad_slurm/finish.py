@@ -202,7 +202,7 @@ def finish_cmd(
 
     if not explicit:
         yield get_status_dict(
-            "run",
+            "finish",
             ds=ds,
             status="impossible",
             message=(
@@ -214,7 +214,7 @@ def finish_cmd(
 
     if not ds_repo.get_hexsha():
         yield get_status_dict(
-            "run",
+            "finish",
             ds=ds,
             status="impossible",
             message="cannot rerun command, nothing recorded",
@@ -239,7 +239,7 @@ def finish_cmd(
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
         err_msg = "You must specify which outputs to save from this slurm run."
-        yield get_status_dict("run", status="error", message=err_msg)
+        yield get_status_dict("finish", status="error", message=err_msg)
         return
 
     slurm_job_id = run_info["slurm_job_id"]
