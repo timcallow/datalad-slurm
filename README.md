@@ -40,7 +40,7 @@ Alternatively, to finish a particular scheduled job, run:
 
     datalad finish <slurm_job_id>
 
-This will create a `[DATALAD SLURM RUN]` entry in the git log, analagous to a `datalad run` command.
+This will create a `[DATALAD SLURM RUN]` entry in the git log, analogous to a `datalad run` command.
 
 `datalad-slurm` will flag an error for any jobs which could not be post-processed, either because they are still running, or the job failed. These are not automatically cleared from the SQLite database. The output files should first be removed or manually added in git, before running
 
