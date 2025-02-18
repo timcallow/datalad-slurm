@@ -4,65 +4,32 @@ __docformat__ = "restructuredtext"
 
 import json
 import logging
-import os
 import subprocess
-import re
 import os.path as op
-import warnings
-from argparse import REMAINDER
-from pathlib import Path
-from tempfile import mkdtemp
-import glob
-import sqlite3
 
-import datalad
-import datalad.support.ansi_colors as ac
-from datalad.config import anything2bool
 from datalad.core.local.save import Save
-from datalad.core.local.status import Status
 from datalad.distribution.dataset import (
-    Dataset,
     EnsureDataset,
     datasetmethod,
     require_dataset,
 )
-from datalad.distribution.get import Get
-from datalad.distribution.install import Install
 from datalad.interface.base import (
     Interface,
-    build_doc,
     eval_results,
 )
 from datalad.interface.common_opts import (
     jobs_opt,
-    save_message_opt,
 )
 from datalad.interface.results import get_status_dict
-from datalad.interface.utils import generic_result_renderer
-from datalad.local.unlock import Unlock
 from datalad.support.constraints import (
-    EnsureBool,
-    EnsureChoice,
     EnsureNone,
     EnsureStr,
 )
-from datalad.support.exceptions import (
-    CapturedException,
-    CommandError,
-)
 from datalad.support.globbedpaths import GlobbedPaths
-from datalad.support.json_py import dump2stream
 from datalad.support.param import Parameter
-from datalad.ui import ui
 from datalad.utils import (
-    SequenceFormatter,
     chpwd,
     ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
 )
 
 from .common import connect_to_database
@@ -154,17 +121,18 @@ class Finish(Interface):
         ds = require_dataset(
             dataset, check_installed=True, purpose="finish a SLURM job"
         )
-        ds_repo = ds.repo
 
         if outputs and not slurm_job_id:
             yield get_status_dict(
-                    "finish",
-                    ds=ds,
-                    status="impossible",
-                    message=("If specifying outputs with datalad finish, "
-                             "a specific slurm job id must be given."),
-                )
-            return                                    
+                "finish",
+                ds=ds,
+                status="impossible",
+                message=(
+                    "If specifying outputs with datalad finish, "
+                    "a specific slurm job id must be given."
+                ),
+            )
+            return
 
         if slurm_job_id:
             slurm_job_id_list = [slurm_job_id]
@@ -177,20 +145,18 @@ class Finish(Interface):
                     status="error",
                     message=("Database connection cannot be established"),
                 )
-                return                                    
+                return
 
         # list the open jobs if requested
         # if a single commit was specified, nothing happens
-        # TODO: code with triple list and multiple prints is a bit ugly, consider refactor
+        # TODO: triple list and multiple prints is a bit ugly, consider refactor
         if list_open_jobs:
             if slurm_job_id_list:
                 print("The following jobs are open: \n")
                 print(f"{'slurm-job-id':<14} {'slurm-job-status'}")
                 for i, slurm_job_id in enumerate(slurm_job_id_list):
                     job_status = get_job_status(slurm_job_id)[1]
-                    print(
-                        f"{slurm_job_id:<10} {job_status}"
-                    )
+                    print(f"{slurm_job_id:<10} {job_status}")
             return
         for slurm_job_id in slurm_job_id_list:
             for r in finish_cmd(
@@ -218,6 +184,7 @@ def get_scheduled_commits(dset):
 
     return slurm_job_ids, True
 
+
 def finish_cmd(
     slurm_job_id,
     dataset=None,
@@ -227,7 +194,37 @@ def finish_cmd(
     close_failed_jobs=False,
     jobs=None,
 ):
+    """
+    Finalize a SLURM job by saving its outputs to a dataset and making an entry in the git log.
 
+    Parameters
+    ----------
+    slurm_job_id : str
+        The SLURM job ID to finish.
+    dataset : str or Dataset, optional
+        The dataset to save the outputs to. If not provided, the current dataset is used.
+    message : str, optional
+        An optional message to include in the save commit.
+    outputs : list or str, optional
+        The outputs to save from the SLURM job. If not provided, outputs from the job info are used.
+    explicit : bool, optional
+        If True, requires a clean dataset to detect changes. Default is True.
+    close_failed_jobs : bool, optional
+        If True, closes failed or cancelled jobs. Default is False.
+    jobs : int, optional
+        Number of parallel jobs to use for saving. Default is None.
+
+    Yields
+    ------
+    dict
+        Status dictionaries indicating the result of the finish operation.
+
+    Notes
+    -----
+    This function finalizes a SLURM job by saving its outputs to a dataset. It checks the job status,
+    processes the outputs, and records the run information. If the job is not complete, it can optionally
+    close failed or cancelled jobs.
+    """
     ds = require_dataset(dataset, check_installed=True, purpose="finish a SLURM job")
     ds_repo = ds.repo
 
@@ -235,7 +232,7 @@ def finish_cmd(
 
     if not explicit:
         yield get_status_dict(
-            "run",
+            "finish",
             ds=ds,
             status="impossible",
             message=(
@@ -247,37 +244,35 @@ def finish_cmd(
 
     if not ds_repo.get_hexsha():
         yield get_status_dict(
-            "run",
+            "finish",
             ds=ds,
             status="impossible",
             message="cannot rerun command, nothing recorded",
         )
         return
-    
+
     # get the open jobs from the database
     results = extract_from_db(ds, slurm_job_id)
     if not results:
         yield get_status_dict(
             "finish",
             status="error",
-            message="Error accessing slurm job {} in database".format(
-                commit[:7]
-            ),
+            message="Error accessing slurm job {} in database".format(slurm_job_id),
         )
         return
 
     run_message = results["run_message"]
-    run_info = results["run_info"]
+    slurm_run_info = results["slurm_run_info"]
     # concatenate outputs from both submission and completion
-    outputs_to_save = ensure_list(outputs) + ensure_list(run_info["outputs"])
+    outputs_to_save = ensure_list(outputs) + ensure_list(slurm_run_info["outputs"])
 
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
         err_msg = "You must specify which outputs to save from this slurm run."
-        yield get_status_dict("run", status="error", message=err_msg)
+        yield get_status_dict("finish", status="impossible", message=err_msg)
         return
 
-    slurm_job_id = run_info["slurm_job_id"]
+    slurm_job_id = slurm_run_info["slurm_job_id"]
 
     # get a list of job ids and status (if we have an array job)
     job_states, job_status_group = get_job_status(slurm_job_id)
@@ -291,31 +286,32 @@ def finish_cmd(
         status_summary = ", ".join(
             f"{job_id}: {status}" for job_id, status in job_states.items()
         )
-        message = f"Slurm job(s) for job {slurm_job_id} are not complete. Statuses: {status_summary}"
-        if any(
-            status in ["PENDING", "RUNNING"] for status in job_states.values()
-        ):
-            yield get_status_dict("finish", status="error", message=message)
+        message = (
+            f"Slurm job(s) for job {slurm_job_id} are not complete."
+            f"Statuses: {status_summary}"
+        )
+        if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
+            yield get_status_dict("finish", status="impossible", message=message)
             return
         else:
             if not close_failed_jobs:
-                yield get_status_dict("finish", status="error", message=message)
+                yield get_status_dict("finish", status="impossible", message=message)
                 return
             else:
                 # remove the job
-                status = remove_from_database(ds, run_info)
+                remove_from_database(ds, slurm_run_info)
                 message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
                 yield get_status_dict("finish", status="ok", message=message)
-                return            
-        
+                return
+
     # expand the wildcards
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
 
     # update the run info with the new outputs
-    run_info["outputs"] = globbed_outputs
+    slurm_run_info["outputs"] = globbed_outputs
 
     # TODO: this is not saving model files (outputs from first job) for some reason
-    # rel_pwd = rerun_info.get('pwd') if rerun_info else None
+    # rel_pwd = reslurm_run_info.get('pwd') if reslurm_run_info else None
     rel_pwd = None  # TODO might be able to get this from rerun info
     if rel_pwd and dataset:
         # recording is relative to the dataset
@@ -334,7 +330,7 @@ def finish_cmd(
         """
     job_status_group = job_status_group.capitalize()
     message_entry = f"Slurm job {slurm_job_id}: {job_status_group}"
-    
+
     # Add the user messages from schedule and finish
     if message:
         message_entry += f"\n\n{message}"
@@ -344,15 +340,15 @@ def finish_cmd(
     # create the run record, either as a string, or written to a file
     # depending on the config/request
     # TODO sidecar param
-    record, record_path = _create_record(run_info, False, ds)
+    record, record_path = _create_record(slurm_run_info, False, ds)
 
     msg = msg.format(
-        message_entry if message_entry is not None else cmd_shorty,
+        message_entry,
         '"{}"'.format(record) if record_path else record,
     )
 
     # remove the job
-    status = remove_from_database(ds, run_info)
+    remove_from_database(ds, slurm_run_info)
 
     if do_save:
         with chpwd(pwd):
@@ -371,6 +367,7 @@ def finish_cmd(
             ):
                 yield r
 
+
 def extract_from_db(dset, slurm_job_id):
     """Extract the run info from the database entry."""
     con, cur = connect_to_database(dset)
@@ -378,10 +375,10 @@ def extract_from_db(dset, slurm_job_id):
     # select all columns
     query = "SELECT * FROM open_jobs WHERE slurm_job_id = ?"
     cur.execute(query, (slurm_job_id,))
-    
+
     # Fetch the record
     record = cur.fetchone()
-    
+
     if not record:
         return None
 
@@ -389,37 +386,48 @@ def extract_from_db(dset, slurm_job_id):
     column_names = [desc[0] for desc in cur.description]
 
     # extract as dictionary
-    run_info = dict(zip(column_names, record))
-
+    slurm_run_info = dict(zip(column_names, record))
 
     # convert json columns to list
     json_columns = ["chain", "inputs", "extra_inputs", "outputs", "slurm_outputs"]
 
     for column in json_columns:
-        run_info[column] = json.loads(run_info[column])
-    
-    message = run_info["message"]
-    del run_info["message"]
+        slurm_run_info[column] = json.loads(slurm_run_info[column])
 
-    res = {"run_message": message, "run_info": run_info}
-    
+    message = slurm_run_info["message"]
+    del slurm_run_info["message"]
+
+    res = {"run_message": message, "slurm_run_info": slurm_run_info}
+
     return dict(res, status="ok")
 
 
 def get_job_status(job_id):
     """
-    Check the status of a Slurm job using sacct command.
+    Check the status of a Slurm job using the sacct command.
 
-    Args:
-        job_id (Union[str, int]): The Slurm job ID to check
+    Parameters
+    ----------
+    job_id : Union[str, int]
+        The Slurm job ID to check.
 
-    Returns:
-        str: "COMPLETED" if the job completed successfully,
-             otherwise returns the actual job state (e.g., "RUNNING", "FAILED", "PENDING")
+    Returns
+    -------
+    tuple
+        A tuple containing:
+        - dict: A dictionary with job IDs as keys and their states as values.
+        - str: A summary status of the job group. "COMPLETED" if all jobs completed successfully,
+               "ARRAY FAILED (SOME COMPLETE)" if some jobs completed and some failed,
+               or "ARRAY FAILED (MULTIPLE CAUSES)" if there are multiple failure causes.
 
-    Raises:
-        subprocess.CalledProcessError: If the sacct command fails
-        ValueError: If the job_id is invalid or job not found
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If the sacct command fails.
+    ValueError
+        If the job_id is invalid or the job is not found.
+    RuntimeError
+        If there is an error running the sacct command.
     """
     # Convert job_id to string if it's an integer
     job_id = str(job_id)
@@ -471,26 +479,36 @@ def get_job_status(job_id):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Error running sacct command: {e.stderr}")
 
-def remove_from_database(dset, run_info):
+
+def remove_from_database(dset, slurm_run_info):
     """Remove a job from the database based on its slurm_job_id."""
     con, cur = connect_to_database(dset)
-    
-    # Remove the rows matching the slurm_job_id from all the tables
-    cur.execute("""
-    DELETE FROM open_jobs 
-    WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
 
-    cur.execute("""
+    # Remove the rows matching the slurm_job_id from all the tables
+    cur.execute(
+        """
+    DELETE FROM open_jobs
+    WHERE slurm_job_id = ?
+    """,
+        (slurm_run_info["slurm_job_id"],),
+    )
+
+    cur.execute(
+        """
     DELETE FROM locked_prefixes
     WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
+    """,
+        (slurm_run_info["slurm_job_id"],),
+    )
 
-    cur.execute("""
+    cur.execute(
+        """
     DELETE FROM locked_names
     WHERE slurm_job_id = ?
-    """, (run_info["slurm_job_id"],))
+    """,
+        (slurm_run_info["slurm_job_id"],),
+    )
 
     con.commit()
     con.close()
-    return "ok"
+    return

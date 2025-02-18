@@ -1,5 +1,3 @@
-# emacs: -*- mode: python; py-indent-offset: 4; tab-width: 4; indent-tabs-mode: nil -*-
-# ex: set sts=4 ts=4 sw=4 et:
 # ## ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ##
 #
 #   See COPYING file distributed along with the datalad package for the
@@ -11,7 +9,6 @@
 __docformat__ = "restructuredtext"
 
 
-import json
 import logging
 import os.path as op
 import re
@@ -21,11 +18,7 @@ from functools import partial
 from itertools import dropwhile
 
 from datalad.consts import PRE_INIT_COMMIT_SHA
-from datalad.core.local.run import (
-    _format_cmd_shorty,
-    assume_ready_opt,
-    format_command,
-)
+
 from datalad.distribution.dataset import (
     EnsureDataset,
     datasetmethod,
@@ -43,39 +36,18 @@ from datalad.support.constraints import (
     EnsureStr,
 )
 from datalad.support.exceptions import CapturedException
-from datalad.support.json_py import load_stream
 from datalad.support.param import Parameter
-
-from datalad.utils import (
-    SequenceFormatter,
-    chpwd,
-    ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
-)
 
 from datalad.core.local.run import (
     _format_cmd_shorty,
-    get_command_pwds,
-    _display_basic,
-    prepare_inputs,
-    _prep_worktree,
     format_command,
-    normalize_command,
-    _create_record,
-    _format_iospecs,
-    _get_substitutions,
+    assume_ready_opt,
 )
 
-from datalad.support.globbedpaths import GlobbedPaths
-
 # from .schedule import _execute_slurm_command
-from .schedule import run_command
+from .schedule import schedule_cmd
 
-from .common import get_finish_info, check_finish_exists
+from .common import get_finish_info
 
 lgr = logging.getLogger("datalad.local.reschedule")
 
@@ -208,7 +180,6 @@ class Reschedule(Interface):
         assume_ready=None,
         jobs=None,
     ):
-
         ds = require_dataset(
             dataset, check_installed=True, purpose="reschedule a command"
         )
@@ -218,7 +189,7 @@ class Reschedule(Interface):
 
         if not ds_repo.get_hexsha():
             yield get_status_dict(
-                "run",
+                "reschedule",
                 ds=ds,
                 status="impossible",
                 message="cannot reschedule command, nothing recorded",
@@ -262,6 +233,33 @@ class Reschedule(Interface):
 
 
 def _revrange_as_results(dset, revrange):
+    """
+    Generate results for a given revision range in a dataset.
+
+    Parameters
+    ----------
+    dset : Dataset
+        The dataset object containing the repository.
+    revrange : str
+        The revision range to process.
+
+    Yields
+    ------
+    dict
+        A dictionary containing the status and run information for each commit
+        in the revision range. The dictionary includes:
+        - 'status': The status of the operation, always 'ok'.
+        - 'ds': The dataset object.
+        - 'commit': The commit hash.
+        - 'parents': The parent commits of the commit.
+        - 'slurm_run_info': The run information if available.
+        - 'run_message': The run message if available.
+
+    Raises
+    ------
+    ValueError
+        If there is an error processing the commit message.
+    """
     ds_repo = dset.repo
     rev_lines = ds_repo.get_revisions(
         revrange, fmt="%H %P", options=["--reverse", "--topo-order"]
@@ -275,7 +273,7 @@ def _revrange_as_results(dset, revrange):
         # custom `rev-list --parents ...` call to avoid this.)
         fields = rev_line.strip().split(" ")
         rev, parents = fields[0], fields[1:]
-        res = get_status_dict("run", ds=dset, commit=rev, parents=parents)
+        res = get_status_dict("reschedule", ds=dset, commit=rev, parents=parents)
         full_msg = ds_repo.format_commit("%B", rev)
         try:
             msg, info = get_finish_info(dset, full_msg)
@@ -292,42 +290,58 @@ def _revrange_as_results(dset, revrange):
                     "merge" if len(parents) > 1 else "root",
                 )
                 continue
-            res["run_info"] = info
+            res["slurm_run_info"] = info
             res["run_message"] = msg
         yield dict(res, status="ok")
 
 
 def _rerun_as_results(dset, revrange, since, message, rev_branch):
-    """Represent the rerun as result records.
-
-    In the standard case, the information in these results will be used to
-    actually re-execute the commands.
     """
+    Represent the rerun as result records.
 
+    Parameters
+    ----------
+    dset : Dataset
+        The dataset to operate on.
+    revrange : str
+        The range of revisions to consider for rerunning.
+    since : str
+        The starting point for the range of revisions.
+    message : str
+        The message to use for the rerun commits.
+    rev_branch : str
+        The branch to use for the rerun commits.
+
+    Yields
+    ------
+    dict
+        A dictionary representing the result of processing each commit in the
+        specified revision range. Each dictionary contains information about
+        the rerun action, status, and any relevant messages or exceptions.
+    """
     try:
         results = _revrange_as_results(dset, revrange)
     except ValueError as exc:
         ce = CapturedException(exc)
-        yield get_status_dict("run", status="error", message=str(ce), exception=ce)
+        yield get_status_dict(
+            "reschedule", status="error", message=str(ce), exception=ce
+        )
         return
-
 
     ds_repo = dset.repo
     # Drop any leading commits that don't have a run command. These would be
     # skipped anyways.
-    # TODO: change the "run_info" to something else e.g. "slurm_run_info"
+    # TODO: change the "slurm_run_info" to something else e.g. "slurm_slurm_run_info"
     # then there is less chance to be confused with a datalad run command
-    results = list(dropwhile(lambda r: "run_info" not in r, results))
+    results = list(dropwhile(lambda r: "slurm_run_info" not in r, results))
     if not results:
         yield get_status_dict(
-            "run",
+            "reschedule",
             status="impossible",
             ds=dset,
             message=("No schedule commits found in range %s", revrange),
         )
         return
-
-    start_point = "HEAD"
 
     def skip_or_pick(hexsha, result, msg):
         result["rerun_action"] = "skip-or-pick"
@@ -336,8 +350,8 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
 
     for res in results:
         hexsha = res["commit"]
-        if "run_info" in res:
-            rerun_dsid = res["run_info"].get("dsid")
+        if "slurm_run_info" in res:
+            rerun_dsid = res["slurm_run_info"].get("dsid")
             if rerun_dsid is not None and rerun_dsid != dset.id:
                 skip_or_pick(hexsha, res, "was ran from a different dataset")
                 res["status"] = "impossible"
@@ -362,6 +376,32 @@ def _mark_nonrun_result(result, which):
 
 
 def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
+    """
+    Rerun a series of actions on a dataset.
+
+    Parameters
+    ----------
+    dset : Dataset
+        The dataset on which to rerun the actions.
+    results : list of dict
+        A list of result dictionaries, each representing an action to rerun.
+    assume_ready : bool, optional
+        If True, assume that the dataset is ready for rerun without additional checks.
+    explicit : bool, optional
+        If True, rerun actions explicitly specified in the results.
+    jobs : int, optional
+        The number of jobs to use for parallel processing.
+
+    Yields
+    ------
+    dict
+        Result dictionaries after rerunning the actions.
+
+    Notes
+    -----
+    This function handles various rerun actions such as 'checkout', 'merge', 'skip-or-pick', and 'run'.
+    It maintains a map from original commit hashes to new commit hashes created during the rerun process.
+    """
     ds_repo = dset.repo
     # Keep a map from an original hexsha to a new hexsha created by the rerun
     # (i.e. a reran, cherry-picked, or merged commit).
@@ -466,20 +506,20 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
                 _mark_nonrun_result(res, "pick")
                 yield res
         elif rerun_action == "run":
-            run_info = res["run_info"]
+            slurm_run_info = res["slurm_run_info"]
             # Keep a "rerun" trail.
-            if "chain" in run_info:
-                run_info["chain"].append(res_hexsha)
+            if "chain" in slurm_run_info:
+                slurm_run_info["chain"].append(res_hexsha)
             else:
-                run_info["chain"] = [res_hexsha]
+                slurm_run_info["chain"] = [res_hexsha]
 
             # now we have to find out what was modified during the last run,
             # and enable re-modification ideally, we would bring back the
             # entire state of the tree with #1424, but we limit ourself to file
             # addition/not-in-place-modification for now
             auto_outputs = (ap["path"] for ap in new_or_modified(res["diff"]))
-            outputs = run_info.get("outputs", [])
-            outputs_dir = op.join(dset.path, run_info["pwd"])
+            outputs = slurm_run_info.get("outputs", [])
+            outputs_dir = op.join(dset.path, slurm_run_info["pwd"])
             auto_outputs = [
                 p
                 for p in auto_outputs
@@ -488,23 +528,23 @@ def _rerun(dset, results, assume_ready=None, explicit=True, jobs=None):
             ]
 
             # remove the slurm outputs from the previous run from the outputs
-            old_slurm_outputs = run_info.get("slurm_outputs", [])
+            old_slurm_outputs = slurm_run_info.get("slurm_outputs", [])
             outputs = [output for output in outputs if output not in old_slurm_outputs]
 
             message = res["rerun_message"] or res["run_message"]
             message = check_job_pattern(message)
-            for r in run_command(
-                run_info["cmd"],
+            for r in schedule_cmd(
+                slurm_run_info["cmd"],
                 dataset=dset,
-                inputs=run_info.get("inputs", []),
-                extra_inputs=run_info.get("extra_inputs", []),
+                inputs=slurm_run_info.get("inputs", []),
+                extra_inputs=slurm_run_info.get("extra_inputs", []),
                 outputs=outputs,
                 assume_ready=assume_ready,
                 explicit=explicit,
                 rerun_outputs=auto_outputs,
                 message=message,
                 jobs=jobs,
-                rerun_info=run_info,
+                reslurm_run_info=slurm_run_info,
             ):
                 yield r
         new_head = ds_repo.get_hexsha()
@@ -542,7 +582,7 @@ def _get_rerun_log_msg(res):
 def _report(dset, results):
     ds_repo = dset.repo
     for res in results:
-        if "run_info" in res:
+        if "slurm_run_info" in res:
             if res["status"] != "impossible":
                 res["diff"] = list(res["diff"])
                 # Add extra information that is useful in the report but not
@@ -553,6 +593,23 @@ def _report(dset, results):
 
 
 def _get_script_handler(script, since, revision):
+    """
+    Generate a handler function to create a shell script for rerunning commands.
+
+    Parameters
+    ----------
+    script : str
+        The file path where the script will be written. If the value is "-", the script will be written to stdout.
+    since : str or None
+        The starting point for the `datalad rerun` command. If None, no `--since` option will be included.
+    revision : str
+        The revision or commit hash to be used in the `datalad rerun` command.
+
+    Returns
+    -------
+    fn : function
+        A function that takes a dataset and results, and writes a shell script based on the rerun commands.
+    """
     ofh = sys.stdout if script.strip() == "-" else open(script, "w")
 
     def fn(dset, results):
@@ -580,17 +637,17 @@ def _get_script_handler(script, since, revision):
                 yield res
                 return
 
-            if "run_info" not in res:
+            if "slurm_run_info" not in res:
                 continue
 
-            run_info = res["run_info"]
-            cmd = run_info["cmd"]
+            slurm_run_info = res["slurm_run_info"]
+            cmd = slurm_run_info["cmd"]
 
             expanded_cmd = format_command(
                 dset,
                 cmd,
                 **dict(
-                    run_info, dspath=dset.path, pwd=op.join(dset.path, run_info["pwd"])
+                    slurm_run_info, dspath=dset.path, pwd=op.join(dset.path, slurm_run_info["pwd"])
                 ),
             )
 
@@ -614,7 +671,7 @@ def _get_script_handler(script, since, revision):
             yield None
         else:
             yield get_status_dict(
-                "run",
+                "reschedule",
                 ds=dset,
                 status="ok",
                 path=script,
@@ -669,7 +726,9 @@ def new_or_modified(diff_results):
             r.pop("status", None)
             yield r
 
+
 def check_job_pattern(text):
+    r"""Check if the text contains a slurm job id and remove it."""
     pattern = r"Submitted batch job \d+: Pending"
     match = re.search(pattern, text)
 

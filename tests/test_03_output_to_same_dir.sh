@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-nset -e # abort on errors
+set -e # abort on errors
 
 # Test datalad 'schedule' and 'finish' functionality
 #   - 'datalad schedule' several jobs with the same output dir but different output file names

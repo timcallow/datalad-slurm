@@ -1,87 +1,36 @@
 __docformat__ = "restructuredtext"
 
 import json
-import logging
 import os.path as op
 import re
-import sys
-from copy import copy
-from functools import partial
-from itertools import dropwhile
 import sqlite3
 
-from datalad.consts import PRE_INIT_COMMIT_SHA
-from datalad.core.local.run import (
-    _format_cmd_shorty,
-    assume_ready_opt,
-    format_command,
-)
-from datalad.distribution.dataset import (
-    EnsureDataset,
-    datasetmethod,
-    require_dataset,
-)
-from datalad.interface.base import (
-    Interface,
-    build_doc,
-    eval_results,
-)
-from datalad.interface.common_opts import jobs_opt
-from datalad.interface.results import get_status_dict
-from datalad.support.constraints import (
-    EnsureNone,
-    EnsureStr,
-)
-from datalad.support.exceptions import CapturedException
 from datalad.support.json_py import load_stream
-from datalad.support.param import Parameter
-
-from datalad.utils import (
-    SequenceFormatter,
-    chpwd,
-    ensure_list,
-    ensure_unicode,
-    get_dataset_root,
-    getpwd,
-    join_cmdline,
-    quote_cmdlinearg,
-)
-
-from datalad.core.local.run import (
-    _format_cmd_shorty,
-    get_command_pwds,
-    _display_basic,
-    prepare_inputs,
-    _prep_worktree,
-    format_command,
-    normalize_command,
-    _create_record,
-    _format_iospecs,
-    _get_substitutions,
-)
-
-from datalad.support.globbedpaths import GlobbedPaths
 
 
 def get_finish_info(dset, message):
-    """Extract finish information from `message`
+    """
+    Extract information about a finished slurm job from its commit message.
 
     Parameters
     ----------
-    message : str
-        A commit message.
+     dset : Dataset
+         Dataset object containing the run record
+     message : str
+         A commit message
 
     Returns
     -------
-    A tuple with the command's message and a dict with finish information. Both
-    these values are None if `message` doesn't have a finish command.
+    tuple
+           (str or None, dict or None)
+        - str: Command message if found, None otherwise
+        - dict: Finish information if found, None otherwise
 
     Raises
     ------
-    A ValueError if the information in `message` is invalid.
+    ValueError
+           If message contains invalid JSON or missing command information
     """
-    # TODO fix the cmd_regex
-
     cmdrun_regex = (
         r"\[DATALAD SLURM RUN\] (.*)=== Do not change lines below "
         r"===\n(.*)\n\^\^\^ Do not change lines above \^\^\^"
@@ -117,28 +66,33 @@ def get_finish_info(dset, message):
     return rec_msg.rstrip(), runinfo
 
 
-def check_finish_exists(dset, revision, rev_branch, allow_reschedule=True):
-    """Check if a job is open or already finished."""
-    # connect to the database
-    con, cur = connect_to_database(dset)
-    if con is None or cur is None:
-        return None, None
-
-    # check the open jobs for the commit
-    cur.execute("SELECT 1 FROM open_jobs WHERE commit_id LIKE ?", (revision + "%",))
-    finish_exists = cur.fetchone() is None
-    con.close()
-
-    return finish_exists, True
-
 def connect_to_database(dset, row_factory=False):
-    """Connect to sqlite3 database and return the connection and cursor."""
+    """
+    Connect to sqlite3 database and return the connection and cursor.
+
+    Parameters
+    ----------
+    dset : Dataset
+           Dataset object with repo and path information
+    row_factory : bool, optional
+           If True, return single-column results as scalars instead of tuples, default False
+
+    Returns
+    -------
+    tuple
+        (sqlite3.Connection or None, sqlite3.Cursor or None)
+        Connection and cursor objects if successful, (None, None) if connection fails
+
+    Notes
+    -----
+    Database path is constructed from dataset ID and branch in .git directory
+    """
     # define the database path from the dataset and branch
     ds_repo = dset.repo
     branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
     db_name = f"{dset.id}_{branch}.db"
     db_path = dset.pathobj / ".git" / db_name
-    
+
     # try to connect to the database
     try:
         con = sqlite3.connect(db_path)
@@ -147,6 +101,5 @@ def connect_to_database(dset, row_factory=False):
         cur = con.cursor()
     except sqlite3.Error:
         return None, None
-    
+
     return con, cur
-            
