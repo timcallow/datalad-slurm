@@ -32,7 +32,7 @@ The second version uses a wildcard in the dirnames.
 
 This should produce some errors by datalad:
 * The first bunch of jobs should run fine including a clean `datalad finish`
-* The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+* The second bunch of jobs should not get scheduled because datalad sees the conflict and refuses to schedule them.
 
 ## Test 03
 
@@ -46,7 +46,7 @@ Like test 03 with disjoint output files in the same output dir. But then try to 
 
 This should produce some errors by datalad:
 * The first bunch of jobs should run fine including a clean `datalad finish`
-* The second bunch of jobs schould not get scheduled because datalad sees the conflict and refuses to schedule them.
+* The second bunch of jobs should not get scheduled because datalad sees the conflict and refuses to schedule them.
 
 ## Test 05
 

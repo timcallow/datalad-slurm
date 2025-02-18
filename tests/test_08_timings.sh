@@ -97,7 +97,7 @@ for i in $TARGETS ; do
 
     sleep 0.1s
 
-    ## TODO the follwoing line produces a error sometimes: "[ERROR  ] Job 9889098 not found"
+    ## TODO the following line produces a error sometimes: "[ERROR  ] Job 9889098 not found"
     echo -n $i" ">>timing_finish-list.txt
     /usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad finish --list-open-jobs
 
