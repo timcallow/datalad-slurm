@@ -89,8 +89,7 @@ def connect_to_database(dset, row_factory=False):
     """
     # define the database path from the dataset and branch
     ds_repo = dset.repo
-    branch = ds_repo.get_corresponding_branch() or ds_repo.get_active_branch() or "HEAD"
-    db_name = f"{dset.id}_{branch}.db"
+    db_name = f"{dset.id}.db"
     db_path = dset.pathobj / ".git" / db_name
 
     # try to connect to the database
