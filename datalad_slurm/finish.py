@@ -269,7 +269,7 @@ def finish_cmd(
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
         err_msg = "You must specify which outputs to save from this slurm run."
-        yield get_status_dict("finish", status="error", message=err_msg)
+        yield get_status_dict("finish", status="impossible", message=err_msg)
         return
 
     slurm_job_id = slurm_run_info["slurm_job_id"]
@@ -291,11 +291,11 @@ def finish_cmd(
             f"Statuses: {status_summary}"
         )
         if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
-            yield get_status_dict("finish", status="error", message=message)
+            yield get_status_dict("finish", status="impossible", message=message)
             return
         else:
             if not close_failed_jobs:
-                yield get_status_dict("finish", status="error", message=message)
+                yield get_status_dict("finish", status="impossible", message=message)
                 return
             else:
                 # remove the job
