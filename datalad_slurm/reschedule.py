@@ -167,7 +167,7 @@ class Reschedule(Interface):
     ]
 
     @staticmethod
-    @datasetmethod(name="slurm-reschedule")
+    @datasetmethod(name="slurm_reschedule")
     @eval_results
     def __call__(
         revision=None,

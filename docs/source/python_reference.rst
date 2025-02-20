@@ -5,6 +5,6 @@ High-level API commands
 .. autosummary::
    :toctree: generated
 
-   schedule
-   finish
-   reschedule
+   slurm_schedule
+   slurm_finish
+   slurm_reschedule

@@ -105,7 +105,7 @@ class Finish(Interface):
     )
 
     @staticmethod
-    @datasetmethod(name="slurm-finish")
+    @datasetmethod(name="slurm_finish")
     @eval_results
     def __call__(
         slurm_job_id=None,

@@ -229,7 +229,7 @@ class Schedule(Interface):
     """
 
     @staticmethod
-    @datasetmethod(name="slurm-schedule")
+    @datasetmethod(name="slurm_schedule")
     @eval_results
     def __call__(
         cmd=None,
