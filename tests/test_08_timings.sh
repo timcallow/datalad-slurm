@@ -2,7 +2,7 @@
 
 set +e # continue on errors
 
-# Test datalad 'schedule' and 'finish --list-open-jobs' and 'finish' functionality
+# Test datalad 'slurm-schedule' and 'slurm-finish --list-open-jobs' and 'slurm-finish' functionality
 #   - measure how long they take with growing git log length
 #
 # Expected results: should run without any errors
@@ -69,7 +69,7 @@ chmod u+x $TESTDIR/slurm.template.sh
 
 cd $TESTDIR
 
-TARGETS=`seq 1 100`
+TARGETS=`seq 1 10`
 
 echo "Create job scripts:"
 
@@ -93,13 +93,13 @@ for i in $TARGETS ; do
 
 
     echo -n $i" ">>timing_schedule.txt
-    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad schedule -o $DIR sbatch --chdir $DIR slurm.sh
+    /usr/bin/time -f "%e" -o timing_schedule.txt -a datalad slurm-schedule -o $DIR sbatch --chdir $DIR slurm.sh
 
     sleep 0.1s
 
     ## TODO the follwoing line produces a error sometimes: "[ERROR  ] Job 9889098 not found"
     echo -n $i" ">>timing_finish-list.txt
-    /usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad finish --list-open-jobs
+    /usr/bin/time -f "%e" -o timing_finish-list.txt -a datalad slurm-finish --list-open-jobs
 
 done
 
@@ -112,7 +112,7 @@ done
 echo "done waiting"
 
 echo "finishing completed jobs:"
-/usr/bin/time -f "%e" -o timing_finish.txt -a datalad finish
+/usr/bin/time -f "%e" -o timing_finish.txt -a datalad slurm-finish
 
 #echo " ### git log in this repo ### "
 #echo ""

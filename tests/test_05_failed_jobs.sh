@@ -2,11 +2,11 @@
 
 set +e # continue on errors
 
-# Test how datalad 'schedule' and 'finish' handle failed jobs
+# Test how datalad 'slurm-schedule' and 'slurm-finish' handle failed jobs
 #   - create some job dirs and job scripts and 'commit' them
-#   - then 'datalad schedule' all jobs from their job dirs
+#   - then 'datalad slurm-schedule' all jobs from their job dirs
 #   - some of the jobs will fail (also feel free to `scancel some`)
-#   - wait until all of them are finished, then run 'datalad finish'
+#   - wait until all of them are finished, then run 'datalad slurm-finish'
 #   - check if the remaining jobs will be shown correctly
 #   - check if the remaining jobs are correctly closed
 #
@@ -96,7 +96,7 @@ for i in $TARGETS ; do
     DIR="test_05_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm.sh $i
+    datalad slurm-schedule -o $PWD sbatch slurm.sh $i
     cd ..
 
 done
@@ -107,19 +107,19 @@ while [[ 0 != `squeue -u $USER | grep "DLtest05" | wc -l` ]] ; do
     sleep 1m
 done
 
-echo -e "\n #### Open jobs before 'datalad finish':\n"
-datalad finish --list-open-jobs
+echo -e "\n #### Open jobs before 'datalad slurm-finish':\n"
+datalad slurm-finish --list-open-jobs
 
 echo -e "finishing completed jobs:"
-datalad finish
+datalad slurm-finish
 
-echo -e \n" #### Open jobs after 'datalad finish':\n"
-datalad finish --list-open-jobs
+echo -e \n" #### Open jobs after 'datalad slurm-finish':\n"
+datalad slurm-finish --list-open-jobs
 
 echo "closing failed jobs :"
-datalad finish --close-failed-jobs
+datalad slurm-finish --close-failed-jobs
 
-echo -e "\n #### Open jobs after 'datalad finish --close-failed-jobs':\n"
-datalad finish --list-open-jobs
+echo -e "\n #### Open jobs after 'datalad slurm-finish --close-failed-jobs':\n"
+datalad slurm-finish --list-open-jobs
 
 

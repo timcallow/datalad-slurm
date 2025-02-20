@@ -2,11 +2,11 @@
 
 set +e # do NOT abort on errors
 
-# Test datalad 'schedule' and 'finish' functionality
+# Test datalad 'slurm-schedule' and 'slurm-finish' functionality
 #   - create some job dirs and job scripts and 'commit' them
-#   - then 'datalad schedule' all jobs from their job dirs
-#   - then 'datalad schedule' more jobs from the same set of job dirs
-#   - wait until all of them are finished, then run 'datalad finish'
+#   - then 'datalad slurm-schedule' all jobs from their job dirs
+#   - then 'datalad slurm-schedule' more jobs from the same set of job dirs
+#   - wait until all of them are finished, then run 'datalad slurm-finish'
 #
 # Expected results: should handle the first set of jobs fine until the end, 
 # but refuse to schedule the second set of jobs
@@ -94,7 +94,7 @@ for i in $TARGETS ; do
     DIR="test_02_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm1.sh
+    datalad slurm-schedule -o $PWD sbatch slurm1.sh
     cd ..
 
 done
@@ -108,7 +108,7 @@ for i in $TARGETS ; do
     DIR="test_02_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm2.sh
+    datalad slurm-schedule -o $PWD sbatch slurm2.sh
     cd ..
 
 done
@@ -120,13 +120,13 @@ while [[ 0 != `squeue -u $USER | grep "DLtest02" | wc -l` ]] ; do
     sleep 1m
 done
 
-datalad finish --list-open-jobs
+datalad slurm-finish --list-open-jobs
 
 echo "finishing completed jobs:"
-datalad finish
+datalad slurm-finish
 
 echo "closing failed jobs:"
-datalad finish --close-failed-jobs
+datalad slurm-finish --close-failed-jobs
 
 #echo " ### git log in this repo ### "
 #echo ""
