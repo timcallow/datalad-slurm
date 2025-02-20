@@ -149,6 +149,12 @@ class Reschedule(Interface):
             be done. [CMD: Note: If you give this option, you most likely want
             to set --output-format to 'json' or 'json_pp'. CMD]""",
         ),
+        with_failed_jobs=Parameter(
+            args=("--with-failed-jobs",),
+            action="store_true",
+            doc="""Reschedule jobs that did not succesfully run, i.e. whose status
+            is not 'Completed'. By default, these are ignored in a reschedule.""",
+        ),        
         assume_ready=reschedule_assume_ready_opt,
         jobs=jobs_opt,
     )
@@ -177,6 +183,7 @@ class Reschedule(Interface):
         message=None,
         script=None,
         report=False,
+        with_failed_jobs=False,
         assume_ready=None,
         jobs=None,
     ):
@@ -218,7 +225,7 @@ class Reschedule(Interface):
         else:
             revrange = "{}..{}".format(since, revision)
 
-        results = _rerun_as_results(ds, revrange, since, message, rev_branch)
+        results = _rerun_as_results(ds, revrange, since, message, rev_branch, with_failed_jobs)
         if script:
             handler = _get_script_handler(script, since, revision)
         elif report:
@@ -280,7 +287,10 @@ def _revrange_as_results(dset, revrange):
         except ValueError as exc:
             # Recast the error so the message includes the revision.
             raise ValueError("Error on {}'s message".format(rev)) from exc
-
+            
+        if msg and info:
+            job_failed = parse_job_status(msg)
+            
         if info is not None:
             if len(parents) != 1:
                 lgr.warning(
@@ -292,10 +302,11 @@ def _revrange_as_results(dset, revrange):
                 continue
             res["slurm_run_info"] = info
             res["run_message"] = msg
+            res["job_failed"] = job_failed
         yield dict(res, status="ok")
 
 
-def _rerun_as_results(dset, revrange, since, message, rev_branch):
+def _rerun_as_results(dset, revrange, since, message, rev_branch, with_failed_jobs):
     """
     Represent the rerun as result records.
 
@@ -311,6 +322,8 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
         The message to use for the rerun commits.
     rev_branch : str
         The branch to use for the rerun commits.
+    with_failed_jobs: bool
+        Re-schedule those commits where the job (partially) failed.
 
     Yields
     ------
@@ -329,11 +342,13 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
         return
 
     ds_repo = dset.repo
-    # Drop any leading commits that don't have a run command. These would be
+    # Drop any leading commits that don't have a slurm run command. These would be
     # skipped anyways.
-    # TODO: change the "slurm_run_info" to something else e.g. "slurm_slurm_run_info"
-    # then there is less chance to be confused with a datalad run command
     results = list(dropwhile(lambda r: "slurm_run_info" not in r, results))
+    # now drop the results which did not run succesfully
+    if not with_failed_jobs:
+        results = [result for result in results if not result["job_failed"]]
+    
     if not results:
         yield get_status_dict(
             "slurm-reschedule",
@@ -739,3 +754,17 @@ def check_job_pattern(text):
         return None
 
     return text.replace(match.group(0), "").strip()
+
+def parse_job_status(text):
+    # Find the first line that starts with "Slurm job"
+    for line in text.split('\n'):
+        if line.startswith('Slurm job'):
+            # Split by colon and get everything after it
+            status = line.split(':')[1].strip()
+            if status == "Completed":
+                return False
+            else:
+                return True
+    
+    # Return None if no matching line is found
+    return None
