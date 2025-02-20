@@ -167,7 +167,7 @@ class Reschedule(Interface):
     ]
 
     @staticmethod
-    @datasetmethod(name="reschedule")
+    @datasetmethod(name="slurm-reschedule")
     @eval_results
     def __call__(
         revision=None,
@@ -189,7 +189,7 @@ class Reschedule(Interface):
 
         if not ds_repo.get_hexsha():
             yield get_status_dict(
-                "reschedule",
+                "slurm-reschedule",
                 ds=ds,
                 status="impossible",
                 message="cannot reschedule command, nothing recorded",
@@ -273,7 +273,7 @@ def _revrange_as_results(dset, revrange):
         # custom `rev-list --parents ...` call to avoid this.)
         fields = rev_line.strip().split(" ")
         rev, parents = fields[0], fields[1:]
-        res = get_status_dict("reschedule", ds=dset, commit=rev, parents=parents)
+        res = get_status_dict("slurm-reschedule", ds=dset, commit=rev, parents=parents)
         full_msg = ds_repo.format_commit("%B", rev)
         try:
             msg, info = get_finish_info(dset, full_msg)
@@ -324,7 +324,7 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
     except ValueError as exc:
         ce = CapturedException(exc)
         yield get_status_dict(
-            "reschedule", status="error", message=str(ce), exception=ce
+            "slurm-reschedule", status="error", message=str(ce), exception=ce
         )
         return
 
@@ -336,7 +336,7 @@ def _rerun_as_results(dset, revrange, since, message, rev_branch):
     results = list(dropwhile(lambda r: "slurm_run_info" not in r, results))
     if not results:
         yield get_status_dict(
-            "reschedule",
+            "slurm-reschedule",
             status="impossible",
             ds=dset,
             message=("No schedule commits found in range %s", revrange),
@@ -671,7 +671,7 @@ def _get_script_handler(script, since, revision):
             yield None
         else:
             yield get_status_dict(
-                "reschedule",
+                "slurm-reschedule",
                 ds=dset,
                 status="ok",
                 path=script,

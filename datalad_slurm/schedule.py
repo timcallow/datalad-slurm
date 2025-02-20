@@ -229,7 +229,7 @@ class Schedule(Interface):
     """
 
     @staticmethod
-    @datasetmethod(name="schedule")
+    @datasetmethod(name="slurm-schedule")
     @eval_results
     def __call__(
         cmd=None,
@@ -457,7 +457,7 @@ def schedule_cmd(
 
     if not outputs:
         yield get_status_dict(
-            "schedule",
+            "slurm-schedule",
             ds=ds,
             status="impossible",
             message=("At least one output must be specified for datalad schedule."),
@@ -474,7 +474,7 @@ def schedule_cmd(
         # MIH: is_dirty() is gone, but status() can do all of the above!
         if not explicit and ds.repo.dirty:
             yield get_status_dict(
-                "schedule",
+                "slurm-schedule",
                 ds=ds,
                 status="impossible",
                 message=(
@@ -487,7 +487,7 @@ def schedule_cmd(
     wildcard_list = ["*", "?", "[", "]", "!", "^", "{", "}"]
     if any(char in output for char in wildcard_list for output in outputs):
         yield get_status_dict(
-            "schedule",
+            "slurm-schedule",
             ds=ds,
             status="impossible",
             message=(
@@ -520,7 +520,7 @@ def schedule_cmd(
         )
         if not status_ok:
             yield get_status_dict(
-                "schedule",
+                "slurm-schedule",
                 ds=ds,
                 status="error",
                 message=("Database connection cannot be established"),
@@ -528,7 +528,7 @@ def schedule_cmd(
             return
         if output_conflict:
             yield get_status_dict(
-                "schedule",
+                "slurm-schedule",
                 ds=ds,
                 status="impossible",
                 message=(
@@ -557,7 +557,7 @@ def schedule_cmd(
         }
     except KeyError as exc:
         yield get_status_dict(
-            "schedule",
+            "slurm-schedule",
             ds=ds,
             status="impossible",
             message=(
@@ -600,7 +600,7 @@ def schedule_cmd(
         cmd_expanded = format_command(ds, cmd, **cmd_fmt_kwargs)
     except KeyError as exc:
         yield get_status_dict(
-            "schedule",
+            "slurm-schedule",
             ds=ds,
             status="impossible",
             message=("command has an unrecognized placeholder: %s", exc),
@@ -702,7 +702,7 @@ def schedule_cmd(
     )
     if not status_ok:
         yield get_status_dict(
-            "schedule",
+            "slurm-schedule",
             ds=ds,
             status="error",
             message=("Database connection cannot be established"),
@@ -710,7 +710,7 @@ def schedule_cmd(
         return
 
     run_result = get_status_dict(
-        "schedule",
+        "slurm-schedule",
         ds=ds,
         status=status,
         # use the abbrev. command as the message to give immediate clarity what

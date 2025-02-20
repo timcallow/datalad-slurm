@@ -105,7 +105,7 @@ class Finish(Interface):
     )
 
     @staticmethod
-    @datasetmethod(name="finish")
+    @datasetmethod(name="slurm-finish")
     @eval_results
     def __call__(
         slurm_job_id=None,
@@ -124,7 +124,7 @@ class Finish(Interface):
 
         if outputs and not slurm_job_id:
             yield get_status_dict(
-                "finish",
+                "slurm-finish",
                 ds=ds,
                 status="impossible",
                 message=(
@@ -140,7 +140,7 @@ class Finish(Interface):
             slurm_job_id_list, status_ok = get_scheduled_commits(ds)
             if not status_ok:
                 yield get_status_dict(
-                    "finish",
+                    "slurm-finish",
                     ds=ds,
                     status="error",
                     message=("Database connection cannot be established"),
@@ -232,7 +232,7 @@ def finish_cmd(
 
     if not explicit:
         yield get_status_dict(
-            "finish",
+            "slurm-finish",
             ds=ds,
             status="impossible",
             message=(
@@ -244,7 +244,7 @@ def finish_cmd(
 
     if not ds_repo.get_hexsha():
         yield get_status_dict(
-            "finish",
+            "slurm-finish",
             ds=ds,
             status="impossible",
             message="cannot rerun command, nothing recorded",
@@ -255,7 +255,7 @@ def finish_cmd(
     results = extract_from_db(ds, slurm_job_id)
     if not results:
         yield get_status_dict(
-            "finish",
+            "slurm-finish",
             status="error",
             message="Error accessing slurm job {} in database".format(slurm_job_id),
         )
@@ -269,7 +269,7 @@ def finish_cmd(
     # should throw an error if user doesn't specify outputs or directory
     if not outputs_to_save:
         err_msg = "You must specify which outputs to save from this slurm run."
-        yield get_status_dict("finish", status="impossible", message=err_msg)
+        yield get_status_dict("slurm-finish", status="impossible", message=err_msg)
         return
 
     slurm_job_id = slurm_run_info["slurm_job_id"]
@@ -291,17 +291,17 @@ def finish_cmd(
             f"Statuses: {status_summary}"
         )
         if any(status in ["PENDING", "RUNNING"] for status in job_states.values()):
-            yield get_status_dict("finish", status="impossible", message=message)
+            yield get_status_dict("slurm-finish", status="impossible", message=message)
             return
         else:
             if not close_failed_jobs:
-                yield get_status_dict("finish", status="impossible", message=message)
+                yield get_status_dict("slurm-finish", status="impossible", message=message)
                 return
             else:
                 # remove the job
                 remove_from_database(ds, slurm_run_info)
                 message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
-                yield get_status_dict("finish", status="ok", message=message)
+                yield get_status_dict("slurm-finish", status="ok", message=message)
                 return
 
     # expand the wildcards

@@ -19,9 +19,9 @@ command_suite = (
             # name of the command class implementation in above module
             "Schedule",
             # optional name of the command in the cmdline API
-            "schedule",
+            "slurm-schedule",
             # optional name of the command in the Python API
-            "schedule",
+            "slurm_schedule",
         ),
         (
             # importable module that contains the schedule command implementation
@@ -29,9 +29,9 @@ command_suite = (
             # name of the command class implementation in above module
             "Finish",
             # optional name of the command in the cmdline API
-            "finish",
+            "slurm-finish",
             # optional name of the command in the Python API
-            "finish",
+            "slurm_finish",
         ),
         (
             # importable module that contains the schedule command implementation
@@ -39,9 +39,9 @@ command_suite = (
             # name of the command class implementation in above module
             "Reschedule",
             # optional name of the command in the cmdline API
-            "reschedule",
+            "slurm-reschedule",
             # optional name of the command in the Python API
-            "reschedule",
+            "slurm_reschedule",
         ),
     ],
 )
