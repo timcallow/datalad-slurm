@@ -2,14 +2,14 @@
 
 set +e # continue on errors
 
-# Test datalad 'reschedule' 
+# Test datalad 'slurm-reschedule' 
 #   - create some job dirs and job scripts and 'commit' them
-#   - then 'datalad schedule' all jobs from their job dirs
-#   - wait until all of them are finished, then run 'datalad reschedule --since='
-#   - then run 'datalad reschedule --since=' again
-#   - wait until all reschedule jobs are finished and then run 'datalad finish'
+#   - then 'datalad slurm-schedule' all jobs from their job dirs
+#   - wait until all of them are finished, then run 'datalad slurm-reschedule --since='
+#   - then run 'datalad slurm-reschedule --since=' again
+#   - wait until all reschedule jobs are finished and then run 'datalad slurm-finish'
 #
-# Expected results: The first 'datalad reschedule' should run without errors;
+# Expected results: The first 'datalad slurm-reschedule' should run without errors;
 # the second should produce an error because of output conflicts
 
 if [[ -z $1 ]] ; then
@@ -93,7 +93,7 @@ for i in $TARGETS ; do
     DIR="test_09_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm.sh
+    datalad slurm-schedule -o $PWD sbatch slurm.sh
     cd ..
 
 done
@@ -104,18 +104,18 @@ while [[ 0 != `squeue -u $USER | grep "DLtest09" | wc -l` ]] ; do
     sleep 1m
 done
 
-datalad finish --list-open-jobs
+datalad slurm-finish --list-open-jobs
 
 echo "finishing completed jobs:"
-datalad finish
+datalad slurm-finish
 
 # now we reschedule the jobs (should work without issues)
 echo "rescheduling all jobs:"
-datalad reschedule --since=
+datalad slurm-reschedule --since=
 
 # now reschedule again - should fail due to conflicts
 echo "rescheduling jobs with conflicts (should fail):"
-datalad reschedule --since=
+datalad slurm-reschedule --since=
 
 while [[ 0 != `squeue -u $USER | grep "DLtest09" | wc -l` ]] ; do
 
@@ -123,11 +123,11 @@ while [[ 0 != `squeue -u $USER | grep "DLtest09" | wc -l` ]] ; do
     sleep 1m
 done
 
-datalad finish --list-open-jobs
+datalad slurm-finish --list-open-jobs
 
 # close up rescheduled jobs
 echo "finishing rescheduled jobs"
-datalad finish --close-failed-jobs
+datalad slurm-finish --close-failed-jobs
 
 
 #echo " ### git log in this repo ### "

@@ -2,10 +2,10 @@
 
 set -e # abort on errors
 
-# Test datalad 'schedule' and 'finish' functionality
+# Test datalad 'slurm-schedule' and 'slurm-finish' functionality
 #   - create some job dirs and job scripts and 'commit' them
-#   - then 'datalad schedule' all jobs from their job dirs
-#   - wait until all of them are finished, then run 'datalad finish'
+#   - then 'datalad slurm-schedule' all jobs from their job dirs
+#   - wait until all of them are finished, then run 'datalad slurm-finish'
 #
 # Expected results: should run without any errors
 
@@ -90,7 +90,7 @@ for i in $TARGETS ; do
     DIR="test_01_output_dir_"$i
 
     cd $DIR
-    datalad schedule -o $PWD sbatch slurm.sh
+    datalad slurm-schedule -o $PWD sbatch slurm.sh
     cd ..
 
 done
@@ -101,10 +101,10 @@ while [[ 0 != `squeue -u $USER | grep "DLtest01" | wc -l` ]] ; do
     sleep 1m
 done
 
-datalad finish --list-open-jobs
+datalad slurm-finish --list-open-jobs
 
 echo "finishing completed jobs:"
-datalad finish
+datalad slurm-finish
 
 #echo " ### git log in this repo ### "
 #echo ""

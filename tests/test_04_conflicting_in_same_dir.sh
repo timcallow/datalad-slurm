@@ -2,10 +2,10 @@
 
 set +e # continue on errors
 
-# Test datalad 'schedule' and 'finish' functionality
-#   - 'datalad schedule' several jobs with the same output dir but different output file names
-#   - then 'datalad schedule' more jobs from the same set of job dirs
-#   - wait until all of them are finished, then run 'datalad finish'
+# Test datalad 'slurm-schedule' and 'slurm-finish' functionality
+#   - 'datalad slurm-schedule' several jobs with the same output dir but different output file names
+#   - then 'datalad slurm-schedule' more jobs from the same set of job dirs
+#   - wait until all of them are finished, then run 'datalad slurm-finish'
 #
 # Expected results: should handle the first set of jobs fine until the end, 
 # but refuse to schedule the second set of jobs
@@ -94,8 +94,8 @@ for i in $TARGETS ; do
 
     OUTPUTFILENAME="test_04_output_file_"$i
 
-    echo datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
-    datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
+    echo datalad slurm-schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
+    datalad slurm-schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
 
 done
 
@@ -111,8 +111,8 @@ for i in $TARGETS ; do
 
     OUTPUTFILENAME="test_04_output_file_"$i
 
-    echo datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
-    datalad schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
+    echo datalad slurm-schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
+    datalad slurm-schedule -o $PWD/$OUTPUTFILENAME sbatch slurm.sh $OUTPUTFILENAME
 
 done
 
@@ -125,13 +125,13 @@ while [[ 0 != `squeue -u $USER | grep "DLtest04" | wc -l` ]] ; do
     sleep 1m
 done
 
-datalad finish --list-open-jobs
+datalad slurm-finish --list-open-jobs
 
 echo "finishing completed jobs:"
-datalad finish
+datalad slurm-finish
 
 echo "closing failed jobs:"
-datalad finish --close-failed-jobs
+datalad slurm-finish --close-failed-jobs
 
 #echo " ### git log in this repo ### "
 #echo ""
