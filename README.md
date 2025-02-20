@@ -26,48 +26,48 @@ Then, clone this repository and install the extension with:
 
 To **schedule** a slurm script:
 
-    datalad schedule --output=<output_files_or_dir> <slurm_submission_command>
+    datalad slurm-schedule --output=<output_files_or_dir> <slurm_submission_command>
 
 where `<output_files_or_dir>` are the expected outputs from the job, and `<slurm_submission_command>` is for example `sbatch submit_script`. Further optional command line arguments can be found in the documentation.
 
-Multiple jobs (including array jobs) can be scheduled sequentially. They are tracked in an SQLite database. Note that any open jobs must not have conflicting outputs with previously scheduled jobs. This is so that the outputs of each slurm run can be tracked to their correct 
+Multiple jobs (including array jobs) can be scheduled sequentially. They are tracked in an SQLite database. Note that any open jobs must not have conflicting outputs with previously scheduled jobs. This is so that the outputs of each slurm run can be tracked to the slurm job which generated them.
 
 To **finish** (i.e. post-process) these jobs (once they are complete), simply run:
 
-    datalad finish
+    datalad slurm-finish
 
 Alternatively, to finish a particular scheduled job, run:
 
-    datalad finish <slurm_job_id>
+    datalad slurm-finish <slurm_job_id>
 
 This will create a `[DATALAD SLURM RUN]` entry in the git log, analagous to a `datalad run` command.
 
 `datalad-slurm` will flag an error for any jobs which could not be post-processed, either because they are still running, or the job failed. These are not automatically cleared from the SQLite database. The output files should first be removed or manually added in git, before running
 
-    datalad finish --close-failed-jobs
+    datalad slurm-finish --close-failed-jobs
 
 To clear the SQLite database. To inspect the current status of all open jobs (without saving anything in git), run:
 
-    datalad finish --list-open-jobs
+    datalad slurm-finish --list-open-jobs
 
 To **reschedule** a previously scheduled job:
 
-    datalad reschedule <schedule_commit_hash>
+    datalad slurm-reschedule <schedule_commit_hash>
 
-where `<schedule_commit_hash>` is the commit hash of the previously scheduled job. There must also be a corresponding `datalad finish` command to the original `datalad schedule`, otherwise `datalad reschedule` will throw an error.
+where `<schedule_commit_hash>` is the commit hash of the previously scheduled job. There must also be a corresponding `datalad slurm-finish` command to the original `datalad slurm-schedule`, otherwise `datalad slurm-reschedule` will throw an error.
 
-In the lingo of the original DataLad package, the combination of `datalad schedule + datalad finish` is similar to `datalad run`, and `datalad reschedule + datalad finish` is similar to `datalad rerun`.
+In the lingo of the original DataLad package, the combination of `datalad slurm-schedule + datalad slurm-finish` is similar to `datalad run`, and `datalad slurm-reschedule + datalad slurm-finish` is similar to `datalad rerun`.
 
 An example workflow could look like this (constructed deliberately to have some failed jobs):
 
-    datalad schedule -o models/abrupt/gold/ sbatch submit_gold.slurm
-    datalad schedule -o models/abrupt/silver/ sbatch submit_silver.slurm
-    datalad schedule -o models/abrupt/bronze/ sbatch submit_bronze.slurm
-    datalad schedule -o models/abrupt/platinum/ sbatch submit_array_platinum.slurm
+    datalad slurm-schedule -o models/abrupt/gold/ sbatch submit_gold.slurm
+    datalad slurm-schedule -o models/abrupt/silver/ sbatch submit_silver.slurm
+    datalad slurm-schedule -o models/abrupt/bronze/ sbatch submit_bronze.slurm
+    datalad slurm-schedule -o models/abrupt/platinum/ sbatch submit_array_platinum.slurm
 
 Checking the job statuses at some point while they are running:
 
-    datalad finish --list-open-jobs
+    datalad slurm-finish --list-open-jobs
     
     The following jobs are open: 
 
@@ -79,7 +79,7 @@ Checking the job statuses at some point while they are running:
 
 Later, once all the jobs have finished running:
 
-    datalad finish
+    datalad slurm-finish
     
     add(ok): models/abrupt/gold/05_02/slurm-10524442.out (file)                                                                                                                                                         
     add(ok): models/abrupt/gold/05_02/slurm-job-10524442.env.json (file)                                                                                                                                                
@@ -99,7 +99,7 @@ Later, once all the jobs have finished running:
 
 To close the failed jobs:
 
-    datalad finish --close-failed-jobs
+    datalad slurm-finish --close-failed-jobs
 
     finish(ok): [Closing failed / cancelled jobs. Statuses: 10524556: FAILED]
     finish(ok): [Closing failed / cancelled jobs. Statuses: 10524620_0: COMPLETED, 10524620_1: COMPLETED, 10524620_2: TIMEOUT]
