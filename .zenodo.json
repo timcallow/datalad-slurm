@@ -1,23 +1,24 @@
 {
   "creators": [
     {
-      "affiliation": "Edit me!",
-      "name": "Edit me!",
-      "orcid": "Edit me!"
+      "affiliation": "Center for Advanced Systems Understanding, Helmholtz-Zentrum Dresden-Rossendorf",
+      "name": "Andreas Knüpfer",
+      "orcid": "0000-0003-3591-397X"
     },
     {
-      "affiliation": "Edit me!",
-      "name": "Edit me!",
-      "orcid": "Edit me!"
+      "affiliation": "Center for Advanced Systems Understanding, Helmholtz-Zentrum Dresden-Rossendorf",
+      "name": "Timothy Callow",
+      "orcid": "0000-0002-4878-3521"
     }
   ],
   "keywords": [
     "data management",
     "data distribution",
     "execution provenance tracking",
-    "version control"
+    "version control",
+    "HPC"
   ],
   "access_right": "open",
-  "license": "Edit me!",
+  "license": "The MIT License",
   "upload_type": "software"
 }
