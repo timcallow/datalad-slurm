@@ -96,6 +96,12 @@ class Finish(Interface):
             Note that pending or running jobs will never be closed.
             They first have to be cancelled with `scancel`. """,
         ),
+        commit_failed_jobs=Parameter(
+            args=("--commit-failed-jobs",),
+            action="store_true",
+            doc="""Commit output files from failed jobs to the git log.
+            Note this automatically enables close_failed_jobs.""",
+        ),
         list_open_jobs=Parameter(
             args=("--list-open-jobs",),
             action="store_true",
@@ -115,6 +121,7 @@ class Finish(Interface):
         outputs=None,
         explicit=True,
         close_failed_jobs=False,
+        commit_failed_jobs=False,
         list_open_jobs=False,
         jobs=None,
     ):
@@ -166,6 +173,7 @@ class Finish(Interface):
                 outputs=outputs,
                 explicit=explicit,
                 close_failed_jobs=close_failed_jobs,
+                commit_failed_jobs=commit_failed_jobs,
                 jobs=None,
             ):
                 yield r
@@ -192,6 +200,7 @@ def finish_cmd(
     outputs=None,
     explicit=True,
     close_failed_jobs=False,
+    commit_failed_jobs=False,
     jobs=None,
 ):
     """
@@ -241,7 +250,8 @@ def finish_cmd(
             ),
         )
         return
-
+    
+    # TODO: this should probably be deleted?
     if not ds_repo.get_hexsha():
         yield get_status_dict(
             "slurm-finish",
@@ -250,6 +260,10 @@ def finish_cmd(
             message="cannot rerun command, nothing recorded",
         )
         return
+
+    # if committing failed jobs, close_failed_jobs must be set to True
+    if commit_failed_jobs:
+        close_failed_jobs = True
 
     # get the open jobs from the database
     results = extract_from_db(ds, slurm_job_id)
@@ -298,11 +312,12 @@ def finish_cmd(
                 yield get_status_dict("slurm-finish", status="impossible", message=message)
                 return
             else:
-                # remove the job
-                remove_from_database(ds, slurm_run_info)
-                message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
-                yield get_status_dict("slurm-finish", status="ok", message=message)
-                return
+                if not commit_failed_jobs:
+                    # remove the job
+                    remove_from_database(ds, slurm_run_info)
+                    message = f"Closing failed / cancelled jobs. Statuses: {status_summary}"
+                    yield get_status_dict("slurm-finish", status="ok", message=message)
+                    return
 
     # expand the wildcards
     globbed_outputs = GlobbedPaths(outputs_to_save, expand=True).paths
