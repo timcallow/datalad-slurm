@@ -11,11 +11,11 @@ set -e # abort on errors
 
 if [[ -z $1 ]] ; then
 
-    echo "no temporary directory for test repository given, abort"
+    echo "no temporary directory for tests given, abort"
     echo ""
-    echo "... call as $0 <test-dir> <alt-dir>"
+    echo "... call as $0 <dir>"
 
-    exit -1
+    exit 1
 fi
 
 D=$1
@@ -26,7 +26,7 @@ if [[ -z $2 ]] ; then
     echo ""
     echo "... call as $0 <test-dir> <alt-dir>"
 
-    exit -1
+    exit 1
 fi
 
 A=$2
@@ -34,29 +34,33 @@ A=$2
 echo "repository in $D and alternative directory in $A"
 A1=$A/foo/
 A2=$A/bar/
-mkdir -p $A1 $A2
+mkdir -p "$A1" "$A2"
 
 ## create a test repo
 
-TESTDIR=$D/"datalad-slurm-test-13_"`date -Is|tr -d ":"`
-
-datalad create -c text2git $TESTDIR
+TESTDIR=$D/"datalad-slurm-test-13_"$(date -Is|tr -d ":")
+datalad create -c text2git "$TESTDIR"
 
 
 ### generic part for all the tests ending here, specific parts follow ###
 
 # make the slurm batch script
 
-if [ ! -f "slurm_config.txt" ]; then
-    echo "Error: slurm_config.txt must exist"
+echo "Using script dir: $SCRIPT_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+CONFIG_FILE="$SCRIPT_DIR/slurm_config.txt"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: $CONFIG_FILE must exist"
     echo "Please see slurm_config_sample.txt for a template"
-    exit -1
+    exit 1
 fi
 
-source slurm_config.txt
+. "$CONFIG_FILE"
 
 # Create the script
-cat << EOF > $TESTDIR/slurm.template.sh
+cat << EOF > "$TESTDIR"/slurm.template.sh
 #!/bin/bash
 #SBATCH --job-name="DLtest13"         # name of the job
 #SBATCH --partition=$partition        
@@ -78,29 +82,29 @@ echo "ended"
 EOF
 
 # Make the script executable
-chmod u+x $TESTDIR/slurm.template.sh
+chmod u+x "$TESTDIR"/slurm.template.sh
 
-cd $TESTDIR
+cd "$TESTDIR"
 
 ## schedule and run 2 jobs in the repository
 
-TARGETS=`seq 17 18`
+TARGETS=$(seq 17 18)
 
 for i in $TARGETS ; do
 
     DIR="test_13_output_dir_"$i
-    mkdir -p $DIR
+    mkdir -p "$DIR"
 
-    cp slurm.template.sh $DIR/slurm.sh
-    echo "aaa">$DIR/aaa.txt
-    mkdir -p $DIR/bbb
-    echo "ccc">$DIR/bbb/ccc.txt
-    mkdir -p $DIR/ddd/eee
-    echo "fff">$DIR/ddd/eee/fff.txt
-    mkdir -p $DIR/ggg/hhh/iii/
-    echo "jjj">$DIR/ggg/hhh/iii/jjj.txt
-    mkdir -p $DIR/kkk/lll/mmm/
-    echo "nnn">$DIR/kkk/lll/mmm/nnn.txt
+    cp slurm.template.sh "$DIR"/slurm.sh
+    echo "aaa">"$DIR"/aaa.txt
+    mkdir -p "$DIR"/bbb
+    echo "ccc">"$DIR"/bbb/ccc.txt
+    mkdir -p "$DIR"/ddd/eee
+    echo "fff">"$DIR"/ddd/eee/fff.txt
+    mkdir -p "$DIR"/ggg/hhh/iii/
+    echo "jjj">"$DIR"/ggg/hhh/iii/jjj.txt
+    mkdir -p "$DIR"/kkk/lll/mmm/
+    echo "nnn">"$DIR"/kkk/lll/mmm/nnn.txt
 
 done
 
@@ -110,14 +114,14 @@ for i in $TARGETS ; do
 
     DIR="test_13_output_dir_"$i
 
-    cd $DIR
-    datalad slurm-schedule -i slurm.sh -i aaa.txt -i bbb/ccc.txt -i ddd/eee/fff.txt -i ggg/hhh/iii -i kkk/lll/mmm/ -o output_test.txt -o output_test.txt.bz2 --alt-dir $A1 sbatch slurm.sh
+    cd "$DIR"
+    datalad slurm-schedule -i slurm.sh -i aaa.txt -i bbb/ccc.txt -i ddd/eee/fff.txt -i ggg/hhh/iii -i kkk/lll/mmm/ -o output_test.txt -o output_test.txt.bz2 --alt-dir "$A1" sbatch slurm.sh
     cd ..
 
 done
-
+# sleep infinity 
 sleep 3s
-while [[ 0 != `squeue -u $USER | grep "DLtest13" | wc -l` ]] ; do
+while [[ 0 != $(squeue -u "$USER" | grep "DLtest13" | wc -l) ]] ; do
 
     echo "    ... wait for jobs to finish"
     sleep 30s
@@ -127,7 +131,7 @@ datalad slurm-finish --list-open-jobs
 echo ""
 
 echo "finishing completed jobs:"
-echo "    "$PWD
+echo "    ""$PWD"
 datalad slurm-finish
 
 sleep 3s
@@ -138,15 +142,15 @@ datalad status
 ## now reschedule the jobs
 
 # reschedule the later job with an different --alt-dir
-COMMITID=`git log -2 --oneline|head -1|awk '{print $1}'`
-datalad slurm-reschedule $COMMITID --alt-dir $A2
+COMMITID=$(git log -2 --oneline|head -1|awk '{print $1}')
+datalad slurm-reschedule "$COMMITID" --alt-dir "$A2"
 
 # reschedule the earlier of the two jobs in-place, that means without a --alt-dir
-COMMITID=`git log -2 --oneline|tail -1|awk '{print $1}'`
-datalad slurm-reschedule $COMMITID
+COMMITID=$(git log -2 --oneline|tail -1|awk '{print $1}')
+datalad slurm-reschedule "$COMMITID"
 
 sleep 3s
-while [[ 0 != `squeue -u $USER | grep "DLtest13" | wc -l` ]] ; do
+while [[ 0 != $(squeue -u "$USER" | grep "DLtest13" | wc -l) ]] ; do
 
     echo "    ... wait for rescheduled jobs to finish"
     sleep 1m
@@ -159,7 +163,7 @@ datalad slurm-finish --list-open-jobs
 echo ""
 
 echo "finishing completed jobs:"
-echo "    "$PWD
+echo "    ""$PWD"
 datalad slurm-finish
 
 

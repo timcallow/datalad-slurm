@@ -1,0 +1,36 @@
+name: Verify DataLad-Slurm extension
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Compose
+        run: |
+          docker compose version
+
+      - name: Build and start SLURM cluster
+        working-directory: tests/integration
+        run: |
+          docker compose up -d mysql slurmdbd slurmctld c1
+
+      - name: Build and run DataLad client test
+        working-directory: tests/integration
+        run: |
+          docker compose up --build --exit-code-from dlclient dlclient
+
+      - name: Show logs (always)
+        working-directory: tests/integration
+        if: always()
+        run: docker compose logs
+        
+      - name: Clean up
+        working-directory: tests/integration
+        if: always()
+        run: docker compose down -v

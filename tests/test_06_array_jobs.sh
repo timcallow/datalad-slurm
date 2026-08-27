@@ -18,34 +18,41 @@ if [[ -z $1 ]] ; then
     echo ""
     echo "... call as $0 <dir>"
 
-    exit -1
+    exit 1
 fi
 
 D=$1
 
 echo "start"
 
-B=`dirname $0`
+B=$(dirname "$0")
 
-echo "from src dir "$B
+echo "from src dir ""$B"
 
 ## create a test repo
 
-TESTDIR=$D/"datalad-slurm-test-06_"`date -Is|tr -d ":"`
+TESTDIR=$D/"datalad-slurm-test-03_"$(date -Is|tr -d ":")
 
-datalad create -c text2git $TESTDIR
+datalad create -c text2git "$TESTDIR"
 
 
-### generic part for all the tests ending here, specific parts follow ###
-if [ ! -f "slurm_config.txt" ]; then
-    echo "Error: slurm_config.txt must exist"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "Using script dir: $SCRIPT_DIR"
+
+CONFIG_FILE="$SCRIPT_DIR/slurm_config.txt"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: $CONFIG_FILE must exist"
     echo "Please see slurm_config_sample.txt for a template"
-    exit -1
+    exit 1
 fi
 
-source slurm_config.txt
+. "$CONFIG_FILE"
 
-cat << EOF > $TESTDIR/slurm.template.sh
+### generic part for all the tests ending here, specific parts follow ###
+
+cat << EOF > "$TESTDIR"/slurm.template.sh
 #!/bin/bash
 #SBATCH --job-name="DLtest06"         # name of the job
 #SBATCH --partition=$partition
@@ -55,7 +62,6 @@ cat << EOF > $TESTDIR/slurm.template.sh
 #SBATCH --cpus-per-task=1             # number of tasks per node
 #SBATCH --output=log.slurm-%j.out
 #SBATCH --array=1-7:2
-echo "started"
 echo "started"
 OUTPUT="output_test_array_"\$SLURM_ARRAY_TASK_ID".txt"
 # simulate some text output
@@ -68,18 +74,18 @@ bzip2 -k \$OUTPUT
 echo "ended"
 EOF
 
-chmod u+x $TESTDIR/slurm.template.sh
+chmod u+x "$TESTDIR"/slurm.template.sh
 
-cd $TESTDIR
+cd "$TESTDIR"
 
-TARGETS=`seq 41 42`
+TARGETS=$(seq 41 42)
 
 for i in $TARGETS ; do
 
     DIR="test_06_output_dir_"$i
-    mkdir -p $DIR
+    mkdir -p "$DIR"
 
-    cp slurm.template.sh $DIR/slurm.sh
+    cp slurm.template.sh "$DIR"/slurm.sh
 
 done
 
@@ -89,14 +95,14 @@ for i in $TARGETS ; do
 
     DIR="test_06_output_dir_"$i
 
-    cd $DIR
-    echo datalad slurm-schedule -o $PWD sbatch slurm.sh
-    datalad slurm-schedule -o $PWD sbatch slurm.sh
+    cd "$DIR"
+    echo datalad slurm-schedule -o "$PWD" sbatch slurm.sh
+    datalad slurm-schedule -o "$PWD" sbatch slurm.sh
     cd ..
 
 done
 
-while [[ 0 != `squeue -u $USER | grep "DLtest06" | wc -l` ]] ; do
+while [[ 0 != $(squeue -u "$USER" | grep "DLtest06" | wc -l) ]] ; do
 
     echo "    ... wait for jobs to finish"
     sleep 1m

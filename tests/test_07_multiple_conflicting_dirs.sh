@@ -16,35 +16,42 @@ if [[ -z $1 ]] ; then
     echo ""
     echo "... call as $0 <dir>"
 
-    exit -1
+    exit 1
 fi
 
 D=$1
 
 echo "start"
 
-B=`dirname $0`
+B=$(dirname "$0")
 
-echo "from src dir "$B
+echo "from src dir ""$B"
 
 ## create a test repo
 
-TESTDIR=$D/"datalad-slurm-test-07_"`date -Is|tr -d ":"`
+TESTDIR=$D/"datalad-slurm-test-03_"$(date -Is|tr -d ":")
 
-datalad create -c text2git $TESTDIR
+datalad create -c text2git "$TESTDIR"
 
 
-### generic part for all the tests ending here, specific parts follow ###
-if [ ! -f "slurm_config.txt" ]; then
-    echo "Error: slurm_config.txt must exist"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "Using script dir: $SCRIPT_DIR"
+
+CONFIG_FILE="$SCRIPT_DIR/slurm_config.txt"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: $CONFIG_FILE must exist"
     echo "Please see slurm_config_sample.txt for a template"
-    exit -1
+    exit 1
 fi
 
-source slurm_config.txt
+. "$CONFIG_FILE"
+
+### generic part for all the tests ending here, specific parts follow ###
 
 # Create the script
-cat <<EOF > $TESTDIR/slurm.template.sh
+cat <<EOF > "$TESTDIR"/slurm.template.sh
 #!/bin/bash
 #SBATCH --job-name="DLtest07"         # name of the job
 #SBATCH --partition=$partition       
@@ -75,10 +82,10 @@ echo "ended"
 EOF
 
 # Make the script executable
-chmod u+x $TESTDIR/slurm.template.sh
+chmod u+x "$TESTDIR"/slurm.template.sh
 
 
-cd $TESTDIR
+cd "$TESTDIR" || exit
 MAINDIR=$PWD
 
 DIR="test_07_output_dir_for_all"
@@ -90,14 +97,14 @@ echo "    --> try to schedule permitted jobs"
 SUBDIRS1=($DIR"/OUTPUT1/" $DIR"/OUTPUT2/" $DIR"/OUTPUT3a/OUTPUT3b/")
 
 for SUBDIR in "${SUBDIRS1[@]}"; do
-    cd $MAINDIR
-    mkdir -p $SUBDIR
+    cd "$MAINDIR" || exit
+    mkdir -p "$SUBDIR"
 
-    cp slurm.template.sh $SUBDIR/slurm.sh
+    cp slurm.template.sh "$SUBDIR"/slurm.sh
 
     datalad save -m "add test job dir and script"
 
-    cd $SUBDIR
+    cd "$SUBDIR" || exit
 
     OUTPUTFILENAME="test_07_output_file"
 
@@ -112,6 +119,9 @@ echo "    --> now try to schedule conflicting jobs"
 
 SUBDIRS2=($DIR"/OUTPUT1/" $DIR"/OUTPUT2/OUTPUT2b/" $DIR"/OUTPUT3a/")
 
+
+SCHED_FAILED=0
+
 for SUBDIR in "${SUBDIRS2[@]}"; do
     cd $MAINDIR
     mkdir -p $SUBDIR
@@ -123,15 +133,20 @@ for SUBDIR in "${SUBDIRS2[@]}"; do
     OUTPUTFILENAME="test_07_output_file"
 
     echo datalad slurm-schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
-    datalad slurm-schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
+    
+    if ! datalad slurm-schedule -o $PWD sbatch slurm.sh $OUTPUTFILENAME
+    then
+        SCHED_FAILED=1
+        echo "Expected failure: conflicting job in $SUBDIR"
+    fi
 
-    cd $SUBDIR
+    cd "$SUBDIR" || exit
 
 done
 
-cd $MAINDIR
+cd $MAINDIR || exit
 
-while [[ 0 != `squeue -u $USER | grep "DLtest07" | wc -l` ]] ; do
+while [[ 0 != $(squeue -u "$USER" | grep "DLtest07" | wc -l) ]] ; do
 
     echo "    ... wait for jobs to finish"
     sleep 1m
@@ -144,6 +159,15 @@ datalad slurm-finish
 
 echo "closing failed jobs:"
 datalad slurm-finish --close-failed-jobs
+
+
+if [[ $SCHED_FAILED -eq 1 ]]; then
+    echo "Test succeeded: conflict detected"
+    exit 0
+else
+    echo "Test FAILED: no conflicts detected but should have"
+fi
+    exit 1
 
 #echo " ### git log in this repo ### "
 #echo ""

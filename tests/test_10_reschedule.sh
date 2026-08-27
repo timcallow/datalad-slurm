@@ -18,38 +18,42 @@ if [[ -z $1 ]] ; then
     echo ""
     echo "... call as $0 <dir>"
 
-    exit -1
+    exit 1
 fi
 
 D=$1
 
 echo "start"
 
-B=`dirname $0`
+B=$(dirname "$0")
 
-echo "from src dir "$B
+echo "from src dir ""$B"
 
 ## create a test repo
 
-TESTDIR=$D/"datalad-slurm-test-10_"`date -Is|tr -d ":"`
+TESTDIR=$D/"datalad-slurm-test-03_"$(date -Is|tr -d ":")
 
-datalad create -c text2git $TESTDIR
+datalad create -c text2git "$TESTDIR"
 
+
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo "Using script dir: $SCRIPT_DIR"
+
+CONFIG_FILE="$SCRIPT_DIR/slurm_config.txt"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: $CONFIG_FILE must exist"
+    echo "Please see slurm_config_sample.txt for a template"
+    exit 1
+fi
+
+. "$CONFIG_FILE"
 
 ### generic part for all the tests ending here, specific parts follow ###
 
-# make the slurm batch script
-
-if [ ! -f "slurm_config.txt" ]; then
-    echo "Error: slurm_config.txt must exist"
-    echo "Please see slurm_config_sample.txt for a template"
-    exit -1
-fi
-
-source slurm_config.txt
-
 # Create the script
-cat << EOF > $TESTDIR/slurm.template.sh
+cat << EOF > "$TESTDIR"/slurm.template.sh
 #!/bin/bash
 #SBATCH --job-name="DLtest10"         # name of the job
 #SBATCH --partition=$partition        
@@ -71,18 +75,18 @@ echo "ended"
 EOF
 
 # Make the script executable
-chmod u+x $TESTDIR/slurm.template.sh
+chmod u+x "$TESTDIR"/slurm.template.sh
 
-cd $TESTDIR
+cd "$TESTDIR" || exit
 
-TARGETS=`seq 0 2`
+TARGETS=$(seq 0 2)
 
 for i in $TARGETS ; do
 
     DIR="test_10_output_dir_"$i
-    mkdir -p $DIR
+    mkdir -p "$DIR"
 
-    cp slurm.template.sh $DIR/slurm.sh
+    cp slurm.template.sh "$DIR"/slurm.sh
 
 done
 
@@ -92,13 +96,13 @@ for i in $TARGETS ; do
 
     DIR="test_10_output_dir_"$i
 
-    cd $DIR
-    datalad slurm-schedule -o $PWD sbatch slurm.sh
+    cd "$DIR" || exit
+    datalad slurm-schedule -o "$PWD" sbatch slurm.sh
     cd ..
 
 done
 
-while [[ 0 != `squeue -u $USER | grep "DLtest10" | wc -l` ]] ; do
+while [[ 0 != $(squeue -u "$USER" | grep "DLtest10" | wc -l) ]] ; do
 
     echo "    ... wait for jobs to finish"
     sleep 1m
@@ -117,7 +121,7 @@ datalad slurm-reschedule --since=
 echo "rescheduling jobs with conflicts (should fail):"
 datalad slurm-reschedule --since=
 
-while [[ 0 != `squeue -u $USER | grep "DLtest10" | wc -l` ]] ; do
+while [[ 0 != $(squeue -u "$USER" | grep "DLtest10" | wc -l) ]] ; do
 
     echo "    ... wait for jobs to finish"
     sleep 1m

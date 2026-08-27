@@ -19,10 +19,10 @@ if [[ -z $1 ]] ; then
     echo "... call as $0 <result-dir> <temp-dir> [<num-files-per-step>] [<size-per-file>] [<num-iterations>] [datalad|git]"
     echo ""
 
-    exit -1
+    exit 1
 fi
-RESULTS=`readlink -f $1`
-echo "Results dir "$RESULTS
+RESULTS=$(readlink -f "$1")
+echo "Results dir ""$RESULTS"
 
 # necessary argument: the directory where the experiment repository will be created inside
 if [[ -z $2 ]] ; then
@@ -32,10 +32,10 @@ if [[ -z $2 ]] ; then
     echo "... call as $0 <result-dir> <temp-dir> [<num-files-per-step>] [<size-per-file>] [<num-iterations>] [datalad|git]"
     echo ""
 
-    exit -1
+    exit 1
 fi
-REPOS=`readlink -f $2`
-echo "Repos dir "$REPOS
+REPOS=$(readlink -f "$2")
+echo "Repos dir ""$REPOS"
 
 # optional argument for how many files per commit should be used, default is 1
 NUMFILES=$3
@@ -88,30 +88,30 @@ elif [[ "datalad save" == $CMD ]] ; then
 else
 
     echo "Wrong command specified, use one of 'git' | ' git commit' | 'datalad' | 'datalad save'"
-    exit -2
+    exit 2
 fi
 
 
 # adjust the number of loop steps
-TARGETS=`seq $LOOP`
+TARGETS=$(seq "$LOOP")
 
 
 ## create test repos/dirs
 
-DT="datalad-slurm-test-14_"`date -Is|tr -d ":"`
-mkdir -p $RESULTS/$DT $REPOS/$DT
+DT="datalad-slurm-test-14_"$(date -Is|tr -d ":")
+mkdir -p "$RESULTS"/"$DT" "$REPOS"/"$DT"
 REPO=$REPOS/$DT/"repository.datalad"
-datalad create -c text2git $REPO
+datalad create -c text2git "$REPO"
 
 ### from here on we are inside the repository
-cd $REPO
+cd "$REPO"
 
 # create local alias so that we can add and commit with one command
 git config  alias.addcommit '!git add -A && git commit'
 
-HOST=`hostname`
-FILESYSTEM=`df -h -T $REPO | tail -n 1 | awk '{print $2}'`
-VERSION=`$VERSIONCMD`
+HOST=$(hostname)
+FILESYSTEM=$(df -h -T "$REPO" | tail -n 1 | awk '{print $2}')
+VERSION=$($VERSIONCMD)
 
 # Create JSON string with HOST and CMD
 JSON_PAYLOAD=$( jq -n \
@@ -126,14 +126,14 @@ JSON_PAYLOAD=$( jq -n \
     '{hostname: $hostname, test_command: $cmd, version: $version, commandline: $cmdline, repo: $repo, filesystem: $filesystem, numfiles: $numfiles, filesize: $filesize}' )
 
 # Save JSON to a file
-echo "$JSON_PAYLOAD" >$RESULTS/$DT/metadata.json
+echo "$JSON_PAYLOAD" >"$RESULTS"/"$DT"/metadata.json
 
 
 echo ""
 echo "start"
 echo ""
 
-echo "num_jobs time">$RESULTS/$DT/timing.txt
+echo "num_jobs time">"$RESULTS"/"$DT"/timing.txt
 
 
 # every loop:
@@ -143,7 +143,7 @@ echo "num_jobs time">$RESULTS/$DT/timing.txt
 #
 for i in $TARGETS ; do
 
-    echo -n $i" " >>$RESULTS/$DT/timing.txt
+    echo -n "$i"" " >>"$RESULTS"/"$DT"/timing.txt
 
     # make a directory hierarchy instead of too many directories
     M=$(($i%100))
@@ -151,20 +151,20 @@ for i in $TARGETS ; do
     #echo $M $i
 
     DIR="$M/$i"
-    mkdir -p $DIR
+    mkdir -p "$DIR"
 
-    for e in `seq $NUMFILES`; do
+    for e in $(seq "$NUMFILES"); do
 
         if [[ $((e % 2)) -eq 1 ]]; then
 
-            tr -dc A-Za-z0-9 </dev/urandom | head -c $FILESIZE >$DIR/output.$e.txt
+            tr -dc A-Za-z0-9 </dev/urandom | head -c "$FILESIZE" >"$DIR"/output."$e".txt
         else
-            tr -dc A-Za-z0-9 </dev/urandom | head -c $FILESIZE | gzip >$DIR/output.$e.txt.gz
+            tr -dc A-Za-z0-9 </dev/urandom | head -c "$FILESIZE" | gzip >"$DIR"/output."$e".txt.gz
         fi
     done
 
 
-    /usr/bin/time -f "%e" -o $RESULTS/$DT/timing.txt -a $CMD -m "commit dataset $i" >/dev/null
+    /usr/bin/time -f "%e" -o "$RESULTS"/"$DT"/timing.txt -a "$CMD" -m "commit dataset $i" >/dev/null
 done
 
 echo ""
@@ -173,9 +173,9 @@ cd ../../../
 # remove the test repo right away
 #echo "remove tmp repo "$REPO
 
-chmod -R u+w $REPO
-rm -Rf $REPO
-rmdir `dirname $REPO`
+chmod -R u+w "$REPO"
+rm -Rf "$REPO"
+rmdir "$(dirname "$REPO")"
 
 echo ""
 echo "done"
